@@ -155,6 +155,7 @@ export const REF_TO_GRID_MAP = {
   poly: [
     { pattern: /^5531-[GPT]-(\d)(\d{2})/, category: 'knee_poly_cs' },
     { pattern: /^5532-[GPT]-(\d)(\d{2})/, category: 'knee_poly_ps' },
+    { pattern: /^5537-[GPT]-(\d)(\d{2})/, category: 'knee_poly_ts' },
   ],
 }
 
