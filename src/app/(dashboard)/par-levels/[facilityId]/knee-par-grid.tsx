@@ -394,14 +394,10 @@ function ParCell({
       disabled={!canEdit}
       className={`w-full max-w-[64px] mx-auto block text-center py-1 px-1 rounded-lg transition ${cellStyle} ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
     >
-      {hasPar || hasStock ? (
-        <div className="leading-tight">
-          <span className="text-sm font-semibold">{onHand}</span>
-          <span className="text-[10px] opacity-60"> / {hasPar ? value : '·'}</span>
-        </div>
-      ) : (
-        <span className="text-sm">·</span>
-      )}
+      <div className="leading-tight">
+        <span className="text-sm font-semibold">{onHand}</span>
+        {hasPar && <span className="text-[10px] opacity-60"> / {value}</span>}
+      </div>
     </button>
   )
 }
