@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import KneeParGrid from './knee-par-grid'
+import { buildOnHandCounts } from '@/lib/inventory-mapper'
 
 export default async function FacilityParLevelsPage({
   params,
@@ -30,6 +31,24 @@ export default async function FacilityParLevelsPage({
   parLevels?.forEach((p: { category: string; variant: string; size: string; par_quantity: number }) => {
     parMap[`${p.category}|${p.variant}|${p.size}`] = p.par_quantity
   })
+
+  // Fetch inventory items for this facility to compute on-hand counts
+  const { data: sessions } = await supabase
+    .from('inventory_sessions')
+    .select('id')
+    .eq('facility_id', facilityId)
+
+  const sessionIds = sessions?.map((s: { id: string }) => s.id) ?? []
+
+  let onHandMap: Record<string, number> = {}
+  if (sessionIds.length > 0) {
+    const { data: items } = await supabase
+      .from('inventory_items')
+      .select('gtin, reference_number')
+      .in('session_id', sessionIds)
+
+    onHandMap = buildOnHandCounts(items ?? [])
+  }
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -77,6 +96,7 @@ export default async function FacilityParLevelsPage({
       <KneeParGrid
         facilityId={facilityId}
         parMap={parMap}
+        onHandMap={onHandMap}
         canEdit={profile?.role === 'admin' || profile?.role === 'manager'}
       />
     </div>

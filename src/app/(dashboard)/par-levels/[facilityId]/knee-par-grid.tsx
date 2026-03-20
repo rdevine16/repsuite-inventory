@@ -9,10 +9,12 @@ type Section = (typeof KNEE_SECTIONS)[number]
 export default function KneeParGrid({
   facilityId,
   parMap: initialParMap,
+  onHandMap,
   canEdit,
 }: {
   facilityId: string
   parMap: Record<string, number>
+  onHandMap: Record<string, number>
   canEdit: boolean
 }) {
   const [parMap, setParMap] = useState(initialParMap)
@@ -164,6 +166,7 @@ export default function KneeParGrid({
                 section={activeSection}
                 fixation={activeFixation}
                 parMap={parMap}
+                onHandMap={onHandMap}
                 saving={saving}
                 canEdit={canEdit}
                 onSave={savePar}
@@ -172,6 +175,7 @@ export default function KneeParGrid({
               <PolyGrid
                 section={activeSection}
                 parMap={parMap}
+                onHandMap={onHandMap}
                 saving={saving}
                 canEdit={canEdit}
                 onSave={savePar}
@@ -194,6 +198,7 @@ function FixationGrid({
   section,
   fixation,
   parMap,
+  onHandMap,
   saving,
   canEdit,
   onSave,
@@ -201,6 +206,7 @@ function FixationGrid({
   section: Section
   fixation: { label: string; variants: readonly { id: string; label: string }[]; sizes?: readonly string[] }
   parMap: Record<string, number>
+  onHandMap: Record<string, number>
   saving: string | null
   canEdit: boolean
   onSave: (category: string, variant: string, size: string, value: number) => void
@@ -237,6 +243,7 @@ function FixationGrid({
                     <ParCell
                       parKey={`${section.id}|${variant.id}|${size}`}
                       value={parMap[`${section.id}|${variant.id}|${size}`] ?? 0}
+                      onHand={onHandMap[`${section.id}|${variant.id}|${size}`] ?? 0}
                       saving={saving}
                       canEdit={canEdit}
                       onSave={(val) => onSave(section.id, variant.id, size, val)}
@@ -255,12 +262,14 @@ function FixationGrid({
 function PolyGrid({
   section,
   parMap,
+  onHandMap,
   saving,
   canEdit,
   onSave,
 }: {
   section: Section
   parMap: Record<string, number>
+  onHandMap: Record<string, number>
   saving: string | null
   canEdit: boolean
   onSave: (category: string, variant: string, size: string, value: number) => void
@@ -292,6 +301,7 @@ function PolyGrid({
                 <ParCell
                   parKey={`${section.id}|${variant}|${size}`}
                   value={parMap[`${section.id}|${variant}|${size}`] ?? 0}
+                  onHand={onHandMap[`${section.id}|${variant}|${size}`] ?? 0}
                   saving={saving}
                   canEdit={canEdit}
                   onSave={(val) => onSave(section.id, variant, size, val)}
@@ -308,12 +318,14 @@ function PolyGrid({
 function ParCell({
   parKey,
   value,
+  onHand,
   saving,
   canEdit,
   onSave,
 }: {
   parKey: string
   value: number
+  onHand: number
   saving: string | null
   canEdit: boolean
   onSave: (value: number) => void
@@ -340,20 +352,38 @@ function ParCell({
 
   if (editing && canEdit) {
     return (
-      <input
-        type="number"
-        min={0}
-        value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        className="w-full max-w-[52px] mx-auto block text-center text-sm py-1.5 px-1 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-        autoFocus
-      />
+      <div className="w-full max-w-[64px] mx-auto">
+        <input
+          type="number"
+          min={0}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          className="w-full text-center text-sm py-1.5 px-1 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          autoFocus
+        />
+      </div>
     )
   }
 
-  const isEmpty = value === 0
+  const hasPar = value > 0
+  const hasStock = onHand > 0
+
+  // Determine cell style based on on-hand vs par
+  let cellStyle = 'text-gray-300 hover:bg-gray-100 hover:text-gray-500' // no par, no stock
+  if (hasPar && onHand >= value) {
+    cellStyle = 'bg-emerald-50 text-emerald-700' // at or above par
+  } else if (hasPar && onHand > 0) {
+    cellStyle = 'bg-amber-50 text-amber-700' // below par but has some
+  } else if (hasPar && onHand === 0) {
+    cellStyle = 'bg-red-50 text-red-600' // par set but zero on hand
+  } else if (!hasPar && hasStock) {
+    cellStyle = 'bg-gray-50 text-gray-600' // stock but no par
+  }
+
+  if (isSaving) cellStyle = 'bg-blue-50 text-blue-400'
+
   return (
     <button
       onClick={() => {
@@ -362,15 +392,16 @@ function ParCell({
         setEditing(true)
       }}
       disabled={!canEdit}
-      className={`w-full max-w-[52px] mx-auto block text-center text-sm py-1.5 px-1 rounded-lg transition ${
-        isSaving
-          ? 'bg-blue-50 text-blue-400'
-          : isEmpty
-          ? 'text-gray-300 hover:bg-gray-100 hover:text-gray-500'
-          : 'bg-blue-50 text-blue-700 font-semibold hover:bg-blue-100'
-      } ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`w-full max-w-[64px] mx-auto block text-center py-1 px-1 rounded-lg transition ${cellStyle} ${canEdit ? 'cursor-pointer' : 'cursor-default'}`}
     >
-      {isEmpty ? '·' : value}
+      {hasPar || hasStock ? (
+        <div className="leading-tight">
+          <span className="text-sm font-semibold">{onHand}</span>
+          <span className="text-[10px] opacity-60"> / {hasPar ? value : '·'}</span>
+        </div>
+      ) : (
+        <span className="text-sm">·</span>
+      )}
     </button>
   )
 }
