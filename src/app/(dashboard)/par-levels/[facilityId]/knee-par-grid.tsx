@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { KNEE_SECTIONS } from '@/lib/knee-config'
 
+type Section = (typeof KNEE_SECTIONS)[number]
+
 export default function KneeParGrid({
   facilityId,
   parMap: initialParMap,
@@ -14,13 +16,19 @@ export default function KneeParGrid({
   canEdit: boolean
 }) {
   const [parMap, setParMap] = useState(initialParMap)
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [selectedSection, setSelectedSection] = useState<string | null>(null)
+  const [selectedFixation, setSelectedFixation] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const supabase = createClient()
 
-  const toggleSection = (id: string) => {
-    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }))
-  }
+  const activeSection = KNEE_SECTIONS.find((s) => s.id === selectedSection)
+  const hasFixation = activeSection?.fixationGroups != null
+  const activeFixation = hasFixation
+    ? activeSection?.fixationGroups?.find((g) => g.label === selectedFixation)
+    : null
+
+  // Should show the grid?
+  const showGrid = activeSection && (!hasFixation || activeFixation)
 
   const savePar = useCallback(
     async (category: string, variant: string, size: string, value: number) => {
@@ -28,7 +36,7 @@ export default function KneeParGrid({
       setSaving(key)
       setParMap((prev) => ({ ...prev, [key]: value }))
 
-      const { error } = await supabase.from('component_par_levels').upsert(
+      await supabase.from('component_par_levels').upsert(
         {
           facility_id: facilityId,
           category,
@@ -39,149 +47,207 @@ export default function KneeParGrid({
         },
         { onConflict: 'facility_id,category,variant,size' }
       )
-
-      if (error) console.error('Failed to save:', error)
       setSaving(null)
     },
     [facilityId, supabase]
   )
 
+  // Count pars set per section
+  const sectionParCount = (sectionId: string) =>
+    Object.keys(parMap).filter((k) => k.startsWith(sectionId + '|') && parMap[k] > 0).length
+
+  // Count pars set per fixation group within a section
+  const fixationParCount = (sectionId: string, variants: readonly { id: string }[]) => {
+    const variantIds = variants.map((v) => v.id)
+    return Object.keys(parMap).filter((k) => {
+      if (!k.startsWith(sectionId + '|') || parMap[k] <= 0) return false
+      const parts = k.split('|')
+      return variantIds.includes(parts[1])
+    }).length
+  }
+
   return (
-    <div className="space-y-4">
-      {KNEE_SECTIONS.map((section) => {
-        const isCollapsed = collapsed[section.id] ?? false
+    <div className="flex gap-0 bg-white rounded-xl border border-gray-200 overflow-hidden min-h-[500px]">
+      {/* Column 1: Component Types */}
+      <div className="w-56 shrink-0 border-r border-gray-200 bg-gray-50/50">
+        <div className="px-4 py-3 border-b border-gray-200">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Component</span>
+        </div>
+        <nav className="py-1">
+          {KNEE_SECTIONS.map((section) => {
+            const isActive = selectedSection === section.id
+            const count = sectionParCount(section.id)
+            return (
+              <button
+                key={section.id}
+                onClick={() => {
+                  setSelectedSection(section.id)
+                  setSelectedFixation(null)
+                }}
+                className={`w-full flex items-center justify-between px-4 py-2.5 text-left text-sm transition ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span>{section.label}</span>
+                <div className="flex items-center gap-1.5">
+                  {count > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                      isActive ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {count}
+                    </span>
+                  )}
+                  <svg className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
 
-        // Count pars set in this section
-        const sectionParCount = Object.keys(parMap).filter(
-          (k) => k.startsWith(section.id + '|') && parMap[k] > 0
-        ).length
-
-        return (
-          <div key={section.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            {/* Section Header */}
-            <button
-              onClick={() => toggleSection(section.id)}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition"
-            >
-              <div className="flex items-center gap-3">
-                <svg
-                  className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+      {/* Column 2: Fixation Types (or grid if no fixation) */}
+      {selectedSection && hasFixation && (
+        <div className="w-52 shrink-0 border-r border-gray-200">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fixation</span>
+          </div>
+          <nav className="py-1">
+            {activeSection?.fixationGroups?.map((group) => {
+              const isActive = selectedFixation === group.label
+              const count = fixationParCount(activeSection.id, group.variants)
+              return (
+                <button
+                  key={group.label}
+                  onClick={() => setSelectedFixation(group.label)}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 text-left text-sm transition ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                <h3 className="font-semibold text-gray-900">{section.label}</h3>
-                {sectionParCount > 0 && (
-                  <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
-                    {sectionParCount} set
-                  </span>
-                )}
-              </div>
-            </button>
+                  <span>{group.label}</span>
+                  <div className="flex items-center gap-1.5">
+                    {count > 0 && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        isActive ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'
+                      }`}>
+                        {count}
+                      </span>
+                    )}
+                    <svg className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              )
+            })}
+          </nav>
+        </div>
+      )}
 
-            {/* Section Content */}
-            {!isCollapsed && (
-              <div className="border-t border-gray-100 overflow-x-auto">
-                {section.fixationGroups ? (
-                  <FixationGrid
-                    section={section}
-                    parMap={parMap}
-                    saving={saving}
-                    canEdit={canEdit}
-                    onSave={savePar}
-                  />
-                ) : (
-                  <PolyGrid
-                    section={section}
-                    parMap={parMap}
-                    saving={saving}
-                    canEdit={canEdit}
-                    onSave={savePar}
-                  />
-                )}
-              </div>
+      {/* Column 3 (or 2 for polys): Par Level Grid */}
+      {showGrid ? (
+        <div className="flex-1 overflow-x-auto">
+          <div className="px-5 py-3 border-b border-gray-200 bg-white sticky top-0">
+            <span className="text-sm font-semibold text-gray-900">
+              {activeSection.label}
+              {activeFixation && <span className="text-gray-400 font-normal"> / {activeFixation.label}</span>}
+            </span>
+          </div>
+          <div className="p-4">
+            {activeFixation ? (
+              <FixationGrid
+                section={activeSection}
+                fixation={activeFixation}
+                parMap={parMap}
+                saving={saving}
+                canEdit={canEdit}
+                onSave={savePar}
+              />
+            ) : (
+              <PolyGrid
+                section={activeSection}
+                parMap={parMap}
+                saving={saving}
+                canEdit={canEdit}
+                onSave={savePar}
+              />
             )}
           </div>
-        )
-      })}
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center text-gray-300 text-sm">
+          {!selectedSection
+            ? 'Select a component type'
+            : 'Select a fixation type'}
+        </div>
+      )}
     </div>
   )
 }
 
-// Grid for fixation-based components (femurs, tibias, patella)
 function FixationGrid({
   section,
+  fixation,
   parMap,
   saving,
   canEdit,
   onSave,
 }: {
-  section: (typeof KNEE_SECTIONS)[number]
+  section: Section
+  fixation: { label: string; variants: readonly { id: string; label: string }[] }
   parMap: Record<string, number>
   saving: string | null
   canEdit: boolean
   onSave: (category: string, variant: string, size: string, value: number) => void
 }) {
-  if (!section.fixationGroups) return null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sizeExclusions: Record<string, string[]> | null = 'sizeExclusions' in section ? (section as any).sizeExclusions : null
 
   return (
-    <div className="divide-y divide-gray-100">
-      {section.fixationGroups.map((group) => (
-        <div key={group.label}>
-          {/* Fixation type header */}
-          <div className="px-5 py-2.5 bg-gray-50/70">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              {group.label}
-            </span>
-          </div>
-
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-left py-2 px-5 text-xs font-medium text-gray-400 w-44"></th>
-                {section.sizes.map((size) => (
-                  <th key={size} className="text-center py-2 px-1 text-xs font-medium text-gray-400 min-w-[60px]">
-                    {size}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {group.variants.map((variant) => (
-                <tr key={variant.id} className="border-t border-gray-50">
-                  <td className="py-2 px-5 text-sm font-medium text-gray-700">{variant.label}</td>
-                  {section.sizes.map((size) => {
-                    const excluded = sizeExclusions?.[variant.id]?.includes(size)
-                    if (excluded) {
-                      return <td key={size} className="py-2 px-1 text-center"><span className="text-gray-200">—</span></td>
-                    }
-                    return (
-                      <td key={size} className="py-2 px-1">
-                        <ParCell
-                          parKey={`${section.id}|${variant.id}|${size}`}
-                          value={parMap[`${section.id}|${variant.id}|${size}`] ?? 0}
-                          saving={saving}
-                          canEdit={canEdit}
-                          onSave={(val) => onSave(section.id, variant.id, size, val)}
-                        />
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
+    <table className="w-full">
+      <thead>
+        <tr>
+          <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-32"></th>
+          {section.sizes.map((size) => (
+            <th key={size} className="text-center py-2 px-1 text-xs font-semibold text-gray-500 min-w-[56px]">
+              {size}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {fixation.variants.map((variant) => (
+          <tr key={variant.id} className="border-t border-gray-100">
+            <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant.label}</td>
+            {section.sizes.map((size) => {
+              const excluded = sizeExclusions?.[variant.id]?.includes(size)
+              if (excluded) {
+                return <td key={size} className="py-2.5 px-1 text-center"><span className="text-gray-200">—</span></td>
+              }
+              return (
+                <td key={size} className="py-2.5 px-1">
+                  <ParCell
+                    parKey={`${section.id}|${variant.id}|${size}`}
+                    value={parMap[`${section.id}|${variant.id}|${size}`] ?? 0}
+                    saving={saving}
+                    canEdit={canEdit}
+                    onSave={(val) => onSave(section.id, variant.id, size, val)}
+                  />
+                </td>
+              )
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
-// Grid for poly inserts (no fixation, size × thickness)
 function PolyGrid({
   section,
   parMap,
@@ -189,23 +255,25 @@ function PolyGrid({
   canEdit,
   onSave,
 }: {
-  section: (typeof KNEE_SECTIONS)[number]
+  section: Section
   parMap: Record<string, number>
   saving: string | null
   canEdit: boolean
   onSave: (category: string, variant: string, size: string, value: number) => void
 }) {
   const variants = 'variants' in section ? (section.variants as readonly string[]) : []
-  const rowLabel = 'rowLabel' in section ? (section.rowLabel as string) : 'Variant'
-  const sizeLabel = 'sizeLabel' in section ? (section.sizeLabel as string) : 'Size'
+  const rowLabel = 'rowLabel' in section ? (section.rowLabel as string) : ''
+  const sizeLabel = 'sizeLabel' in section ? (section.sizeLabel as string) : ''
 
   return (
     <table className="w-full">
       <thead>
         <tr>
-          <th className="text-left py-2 px-5 text-xs font-medium text-gray-400 w-24">{rowLabel}</th>
+          <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-24">
+            {rowLabel}
+          </th>
           {section.sizes.map((size) => (
-            <th key={size} className="text-center py-2 px-1 text-xs font-medium text-gray-400 min-w-[60px]">
+            <th key={size} className="text-center py-2 px-1 text-xs font-semibold text-gray-500 min-w-[56px]">
               {size}{sizeLabel === 'Thickness' ? 'mm' : ''}
             </th>
           ))}
@@ -213,10 +281,10 @@ function PolyGrid({
       </thead>
       <tbody>
         {variants.map((variant) => (
-          <tr key={variant} className="border-t border-gray-50">
-            <td className="py-2 px-5 text-sm font-medium text-gray-700">{variant}</td>
+          <tr key={variant} className="border-t border-gray-100">
+            <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant}</td>
             {section.sizes.map((size) => (
-              <td key={size} className="py-2 px-1">
+              <td key={size} className="py-2.5 px-1">
                 <ParCell
                   parKey={`${section.id}|${variant}|${size}`}
                   value={parMap[`${section.id}|${variant}|${size}`] ?? 0}
@@ -233,7 +301,6 @@ function PolyGrid({
   )
 }
 
-// Individual par level cell
 function ParCell({
   parKey,
   value,
@@ -260,9 +327,7 @@ function ParCell({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      ;(e.target as HTMLInputElement).blur()
-    }
+    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
     if (e.key === 'Escape') {
       setEditValue(value.toString())
       setEditing(false)
@@ -278,7 +343,7 @@ function ParCell({
         onChange={(e) => setEditValue(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
-        className="w-full max-w-[52px] mx-auto block text-center text-sm py-1 px-1 border border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+        className="w-full max-w-[52px] mx-auto block text-center text-sm py-1.5 px-1 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
         autoFocus
       />
     )
@@ -293,7 +358,7 @@ function ParCell({
         setEditing(true)
       }}
       disabled={!canEdit}
-      className={`w-full max-w-[52px] mx-auto block text-center text-sm py-1 px-1 rounded-md transition ${
+      className={`w-full max-w-[52px] mx-auto block text-center text-sm py-1.5 px-1 rounded-lg transition ${
         isSaving
           ? 'bg-blue-50 text-blue-400'
           : isEmpty
