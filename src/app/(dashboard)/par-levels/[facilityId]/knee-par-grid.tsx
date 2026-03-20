@@ -199,21 +199,23 @@ function FixationGrid({
   onSave,
 }: {
   section: Section
-  fixation: { label: string; variants: readonly { id: string; label: string }[] }
+  fixation: { label: string; variants: readonly { id: string; label: string }[]; sizes?: readonly string[] }
   parMap: Record<string, number>
   saving: string | null
   canEdit: boolean
   onSave: (category: string, variant: string, size: string, value: number) => void
 }) {
+  // Use fixation-specific sizes if available, otherwise fall back to section sizes
+  const sizes = fixation.sizes ?? section.sizes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sizeExclusions: Record<string, string[]> | null = 'sizeExclusions' in section ? (section as any).sizeExclusions : null
+  const sizesByVariant: Record<string, string[]> | null = 'sizesByVariant' in section ? (section as any).sizesByVariant : null
 
   return (
     <table className="w-full">
       <thead>
         <tr>
-          <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-32"></th>
-          {section.sizes.map((size) => (
+          <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-44"></th>
+          {sizes.map((size) => (
             <th key={size} className="text-center py-2 px-1 text-xs font-semibold text-gray-500 min-w-[56px]">
               {size}
             </th>
@@ -221,28 +223,30 @@ function FixationGrid({
         </tr>
       </thead>
       <tbody>
-        {fixation.variants.map((variant) => (
-          <tr key={variant.id} className="border-t border-gray-100">
-            <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant.label}</td>
-            {section.sizes.map((size) => {
-              const excluded = sizeExclusions?.[variant.id]?.includes(size)
-              if (excluded) {
-                return <td key={size} className="py-2.5 px-1 text-center"><span className="text-gray-200">—</span></td>
-              }
-              return (
-                <td key={size} className="py-2.5 px-1">
-                  <ParCell
-                    parKey={`${section.id}|${variant.id}|${size}`}
-                    value={parMap[`${section.id}|${variant.id}|${size}`] ?? 0}
-                    saving={saving}
-                    canEdit={canEdit}
-                    onSave={(val) => onSave(section.id, variant.id, size, val)}
-                  />
-                </td>
-              )
-            })}
-          </tr>
-        ))}
+        {fixation.variants.map((variant) => {
+          const validSizes = sizesByVariant?.[variant.id]
+          return (
+            <tr key={variant.id} className="border-t border-gray-100">
+              <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant.label}</td>
+              {sizes.map((size) => {
+                if (validSizes && !validSizes.includes(size as string)) {
+                  return <td key={size} className="py-2.5 px-1 text-center"><span className="text-gray-200">—</span></td>
+                }
+                return (
+                  <td key={size} className="py-2.5 px-1">
+                    <ParCell
+                      parKey={`${section.id}|${variant.id}|${size}`}
+                      value={parMap[`${section.id}|${variant.id}|${size}`] ?? 0}
+                      saving={saving}
+                      canEdit={canEdit}
+                      onSave={(val) => onSave(section.id, variant.id, size, val)}
+                    />
+                  </td>
+                )
+              })}
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
