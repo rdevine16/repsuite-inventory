@@ -1,4 +1,5 @@
 // Hip implant grid configuration
+// Built from actual catalog items
 
 export const HIP_SECTIONS = [
   {
@@ -46,6 +47,14 @@ export const HIP_SECTIONS = [
     sizeLabel: '',
     variants: ['22mm', '28mm', '32mm', '36mm', '40mm', '44mm'],
     sizes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+    sizesByVariant: {
+      '22mm': ['A', 'B', 'I'],
+      '28mm': ['D', 'F'],
+      '32mm': ['B', 'C', 'J'],
+      '36mm': ['E', 'F', 'G', 'H'],
+      '40mm': ['E', 'F', 'G', 'H'],
+      '44mm': ['H'],
+    } as Record<string, string[]>,
   },
   {
     id: 'hip_liner_x3_10',
@@ -54,7 +63,14 @@ export const HIP_SECTIONS = [
     rowLabel: 'ID',
     sizeLabel: '',
     variants: ['22mm', '26mm', '28mm', '32mm', '36mm'],
-    sizes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+    sizes: ['B', 'D', 'E', 'F', 'G', 'H', 'J'],
+    sizesByVariant: {
+      '22mm': ['B'],
+      '26mm': ['E', 'J'],
+      '28mm': ['J'],
+      '32mm': ['D', 'E', 'F'],
+      '36mm': ['E', 'F', 'G', 'H'],
+    } as Record<string, string[]>,
   },
   {
     id: 'hip_liner_x3_ecc',
@@ -63,7 +79,12 @@ export const HIP_SECTIONS = [
     rowLabel: 'ID',
     sizeLabel: '',
     variants: ['28mm', '32mm', '36mm'],
-    sizes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+    sizes: ['C', 'D', 'E', 'F', 'G', 'H', 'I'],
+    sizesByVariant: {
+      '28mm': ['C'],
+      '32mm': ['D'],
+      '36mm': ['E', 'F', 'G', 'H', 'I'],
+    } as Record<string, string[]>,
   },
   {
     id: 'hip_liner_mdm_cocr',
@@ -84,6 +105,7 @@ export const HIP_SECTIONS = [
     sizes: ['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
     sizesByVariant: {
       '22mm': ['C', 'D'],
+      '28mm': ['E', 'F', 'G', 'H', 'I', 'J'],
     } as Record<string, string[]>,
   },
   {
@@ -121,7 +143,7 @@ export const HIP_SECTIONS = [
     label: 'Screws',
     fixationGroups: null,
     rowLabel: 'Type',
-    sizeLabel: '',
+    sizeLabel: 'mm',
     variants: ['Hex 6.5mm', 'Torx 6.5mm'],
     sizes: ['15', '16', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
     sizesByVariant: {
