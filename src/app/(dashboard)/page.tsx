@@ -4,304 +4,246 @@ import Link from 'next/link'
 export default async function DashboardPage() {
   const supabase = await createClient()
 
-  // Fetch facilities
   const { data: facilities } = await supabase
     .from('facilities')
-    .select('*')
+    .select('id, name, address')
     .order('name')
 
-  // Fetch recent sessions
+  // Get sessions per facility with latest date
   const { data: sessions } = await supabase
     .from('inventory_sessions')
-    .select('*, facilities(name)')
+    .select('id, facility_id, started_at, status, total_items')
     .order('started_at', { ascending: false })
-    .limit(5)
 
-  // Fetch inventory counts per facility
-  const { data: inventoryCounts } = await supabase
+  // Get item counts and expiration data per facility
+  const { data: allItems } = await supabase
     .from('inventory_items')
-    .select('session_id, inventory_sessions(facility_id)')
+    .select('id, description, lot_number, expiration_date, session_id, inventory_sessions(facility_id)')
 
-  // Fetch total unique products
-  const { count: totalProducts } = await supabase
-    .from('product_catalog')
-    .select('*', { count: 'exact', head: true })
+  const today = new Date().toISOString().split('T')[0]
+  const ninetyDays = new Date()
+  ninetyDays.setDate(ninetyDays.getDate() + 90)
+  const ninetyDaysStr = ninetyDays.toISOString().split('T')[0]
 
-  // Fetch items expiring within 90 days
-  const ninetyDaysFromNow = new Date()
-  ninetyDaysFromNow.setDate(ninetyDaysFromNow.getDate() + 90)
-  const { data: expiringItems } = await supabase
-    .from('inventory_items')
-    .select('*')
-    .lt('expiration_date', ninetyDaysFromNow.toISOString().split('T')[0])
-    .gt('expiration_date', new Date().toISOString().split('T')[0])
-    .order('expiration_date')
-    .limit(10)
+  // Build per-facility stats
+  const facilityStats: Record<string, {
+    itemCount: number
+    expiredCount: number
+    expiringCount: number
+    lastScan: string | null
+  }> = {}
 
-  // Fetch items already expired
-  const { data: expiredItems, count: expiredCount } = await supabase
-    .from('inventory_items')
-    .select('*', { count: 'exact' })
-    .lt('expiration_date', new Date().toISOString().split('T')[0])
-    .limit(5)
-
-  // Fetch par level alerts (now using product_groups)
-  const { data: parLevels } = await supabase
-    .from('par_levels')
-    .select('*, product_groups(catalog_name, display_name), facilities(name)')
-
-  // Build gtin -> product_group_id mapping
-  const { data: catalogMapping } = await supabase
-    .from('product_catalog')
-    .select('gtin, product_group_id')
-
-  const gtinToGroup: Record<string, string> = {}
-  catalogMapping?.forEach((item: { gtin: string; product_group_id: string | null }) => {
-    if (item.product_group_id) gtinToGroup[item.gtin] = item.product_group_id
-  })
-
-  // Count items per facility per product_group
-  const { data: itemsByGtin } = await supabase
-    .from('inventory_items')
-    .select('gtin, session_id, inventory_sessions(facility_id)')
-
-  const facilityGroupCounts: Record<string, Record<string, number>> = {}
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  itemsByGtin?.forEach((item: any) => {
+  allItems?.forEach((item: any) => {
     const sessions = item.inventory_sessions
     const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
-    const groupId = item.gtin ? gtinToGroup[item.gtin] : null
-    if (facilityId && groupId) {
-      if (!facilityGroupCounts[facilityId]) facilityGroupCounts[facilityId] = {}
-      facilityGroupCounts[facilityId][groupId] = (facilityGroupCounts[facilityId][groupId] || 0) + 1
+    if (!facilityId) return
+
+    if (!facilityStats[facilityId]) {
+      facilityStats[facilityId] = { itemCount: 0, expiredCount: 0, expiringCount: 0, lastScan: null }
+    }
+    facilityStats[facilityId].itemCount++
+
+    if (item.expiration_date) {
+      if (item.expiration_date < today) {
+        facilityStats[facilityId].expiredCount++
+      } else if (item.expiration_date <= ninetyDaysStr) {
+        facilityStats[facilityId].expiringCount++
+      }
     }
   })
 
-  // Find below-par items
-  const belowParAlerts: Array<{
-    product: string
-    facility: string
-    current: number
-    min: number
-  }> = []
+  // Add last scan dates from sessions
+  sessions?.forEach((s: { facility_id: string; started_at: string }) => {
+    if (!facilityStats[s.facility_id]) {
+      facilityStats[s.facility_id] = { itemCount: 0, expiredCount: 0, expiringCount: 0, lastScan: null }
+    }
+    if (!facilityStats[s.facility_id].lastScan) {
+      facilityStats[s.facility_id].lastScan = s.started_at
+    }
+  })
 
+  // Build expiration list across all facilities
+  interface ExpirationItem {
+    id: string
+    description: string | null
+    lot_number: string | null
+    expiration_date: string
+    facility: string
+    isExpired: boolean
+  }
+
+  const expirationAlerts: ExpirationItem[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  parLevels?.forEach((pl: any) => {
-    const groupId = pl.product_group_id
-    if (!groupId) return
-    const current = facilityGroupCounts[pl.facility_id]?.[groupId] || 0
-    if (current < pl.min_quantity) {
-      const group = Array.isArray(pl.product_groups) ? pl.product_groups[0] : pl.product_groups
-      const facility = Array.isArray(pl.facilities) ? pl.facilities[0] : pl.facilities
-      belowParAlerts.push({
-        product: group?.display_name ?? 'Unknown',
+  allItems?.forEach((item: any) => {
+    if (!item.expiration_date) return
+    const sessions = item.inventory_sessions
+    const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
+    const facility = facilities?.find((f) => f.id === facilityId)
+
+    if (item.expiration_date < today) {
+      expirationAlerts.push({
+        id: item.id,
+        description: item.description,
+        lot_number: item.lot_number,
+        expiration_date: item.expiration_date,
         facility: facility?.name ?? 'Unknown',
-        current,
-        min: pl.min_quantity,
+        isExpired: true,
+      })
+    } else if (item.expiration_date <= ninetyDaysStr) {
+      expirationAlerts.push({
+        id: item.id,
+        description: item.description,
+        lot_number: item.lot_number,
+        expiration_date: item.expiration_date,
+        facility: facility?.name ?? 'Unknown',
+        isExpired: false,
       })
     }
   })
 
-  const totalItems = inventoryCounts?.length ?? 0
+  // Sort: expired first, then by date
+  expirationAlerts.sort((a, b) => {
+    if (a.isExpired !== b.isExpired) return a.isExpired ? -1 : 1
+    return a.expiration_date.localeCompare(b.expiration_date)
+  })
+
+  const expiredCount = expirationAlerts.filter((a) => a.isExpired).length
+  const expiringCount = expirationAlerts.filter((a) => !a.isExpired).length
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Overview of your inventory across all facilities</p>
+        <p className="text-gray-500 mt-1">Your facilities at a glance</p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Items"
-          value={totalItems}
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-            </svg>
-          }
-        />
-        <StatCard
-          label="Products in Catalog"
-          value={totalProducts ?? 0}
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          }
-        />
-        <StatCard
-          label="Facilities"
-          value={facilities?.length ?? 0}
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          }
-        />
-        <StatCard
-          label="Below Par Alerts"
-          value={belowParAlerts.length}
-          alert={belowParAlerts.length > 0}
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          }
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Below Par Alerts */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Below Par Alerts</h2>
-          {belowParAlerts.length === 0 ? (
-            <p className="text-gray-400 text-sm">All items are at or above par levels.</p>
-          ) : (
-            <div className="space-y-3">
-              {belowParAlerts.map((alert, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
-                  <div className="p-1 bg-red-100 rounded-md">
-                    <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{alert.product}</p>
-                    <p className="text-xs text-gray-500">{alert.facility}</p>
-                    <p className="text-xs text-red-600 font-medium mt-1">
-                      {alert.current} on hand / {alert.min} minimum
-                    </p>
-                  </div>
+      {/* Facility Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {facilities?.map((facility) => {
+          const stats = facilityStats[facility.id]
+          return (
+            <div key={facility.id} className="bg-white rounded-xl border border-gray-200 p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">{facility.name}</h2>
+                  {facility.address && (
+                    <p className="text-sm text-gray-400">{facility.address}</p>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Expiring Soon */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Expiration Alerts
-            {(expiredCount ?? 0) > 0 && (
-              <span className="ml-2 text-sm font-normal text-red-600">
-                {expiredCount} expired
-              </span>
-            )}
-          </h2>
-          {(!expiringItems || expiringItems.length === 0) && (!expiredItems || expiredItems.length === 0) ? (
-            <p className="text-gray-400 text-sm">No expiration alerts.</p>
-          ) : (
-            <div className="space-y-2">
-              {expiredItems?.map((item: any) => (
-                <div key={item.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 truncate">{item.description}</p>
-                    <p className="text-xs text-gray-500">Lot: {item.lot_number}</p>
-                  </div>
-                  <span className="text-xs font-medium text-red-700 bg-red-100 px-2 py-1 rounded-full whitespace-nowrap ml-2">
-                    Expired {item.expiration_date}
+                {stats?.lastScan && (
+                  <span className="text-xs text-gray-400">
+                    Last scan {new Date(stats.lastScan).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
+                )}
+              </div>
+
+              {/* Facility Stats */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-2xl font-bold text-gray-900">{stats?.itemCount ?? 0}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">On Hand</p>
                 </div>
-              ))}
-              {expiringItems?.map((item: any) => (
-                <div key={item.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 truncate">{item.description}</p>
-                    <p className="text-xs text-gray-500">Lot: {item.lot_number}</p>
-                  </div>
-                  <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-1 rounded-full whitespace-nowrap ml-2">
-                    Exp {item.expiration_date}
-                  </span>
+                <div className={`text-center p-3 rounded-lg ${(stats?.expiredCount ?? 0) > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                  <p className={`text-2xl font-bold ${(stats?.expiredCount ?? 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                    {stats?.expiredCount ?? 0}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Expired</p>
                 </div>
-              ))}
+                <div className={`text-center p-3 rounded-lg ${(stats?.expiringCount ?? 0) > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                  <p className={`text-2xl font-bold ${(stats?.expiringCount ?? 0) > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
+                    {stats?.expiringCount ?? 0}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Expiring 90d</p>
+                </div>
+              </div>
+
+              {/* Quick Links */}
+              <div className="flex gap-2">
+                <Link
+                  href={`/par-levels/${facility.id}`}
+                  className="flex-1 text-center py-2 px-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+                >
+                  Par Levels
+                </Link>
+                <Link
+                  href={`/inventory?facility=${facility.id}`}
+                  className="flex-1 text-center py-2 px-3 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+                >
+                  Scan Log
+                </Link>
+              </div>
             </div>
-          )}
-        </div>
+          )
+        })}
+        {(!facilities || facilities.length === 0) && (
+          <p className="text-gray-400 col-span-full text-center py-12">
+            No facilities yet. Facilities are created when inventory is scanned from the iOS app.
+          </p>
+        )}
       </div>
 
-      {/* Recent Sessions */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Inventory Sessions</h2>
-          <Link href="/inventory" className="text-sm text-blue-600 hover:text-blue-700">
-            View all inventory →
-          </Link>
-        </div>
-        {!sessions || sessions.length === 0 ? (
-          <p className="text-gray-400 text-sm">No inventory sessions yet.</p>
-        ) : (
+      {/* Expiration Alerts */}
+      {expirationAlerts.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Expiration Alerts
+            </h2>
+            <div className="flex gap-3 text-xs">
+              {expiredCount > 0 && (
+                <span className="text-red-600 font-medium bg-red-50 px-2 py-1 rounded-full">
+                  {expiredCount} expired
+                </span>
+              )}
+              {expiringCount > 0 && (
+                <span className="text-amber-600 font-medium bg-amber-50 px-2 py-1 rounded-full">
+                  {expiringCount} expiring within 90 days
+                </span>
+              )}
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Item</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Lot</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">Facility</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Started</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
-                  <th className="text-right py-2 px-3 text-gray-500 font-medium">Items</th>
+                  <th className="text-right py-2 px-3 text-gray-500 font-medium">Expiration</th>
                 </tr>
               </thead>
               <tbody>
-                {sessions.map((session: any) => (
-                  <tr key={session.id} className="border-b border-gray-50">
-                    <td className="py-2.5 px-3 font-medium text-gray-900">
-                      {Array.isArray(session.facilities) ? session.facilities[0]?.name : session.facilities?.name}
+                {expirationAlerts.slice(0, 15).map((alert) => (
+                  <tr key={alert.id} className="border-b border-gray-50">
+                    <td className="py-2.5 px-3 font-medium text-gray-900 max-w-xs truncate">
+                      {alert.description ?? '—'}
                     </td>
-                    <td className="py-2.5 px-3 text-gray-600">
-                      {new Date(session.started_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="py-2.5 px-3">
+                    <td className="py-2.5 px-3 text-gray-500 font-mono text-xs">{alert.lot_number ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-gray-500 text-xs">{alert.facility}</td>
+                    <td className="py-2.5 px-3 text-right">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        session.status === 'completed'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
+                        alert.isExpired
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-amber-100 text-amber-700'
                       }`}>
-                        {session.status === 'completed' ? 'Completed' : 'In Progress'}
+                        {alert.expiration_date}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-right text-gray-600">{session.total_items}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {expirationAlerts.length > 15 && (
+              <div className="pt-3 text-center">
+                <Link href="/inventory" className="text-sm text-blue-600 hover:text-blue-700">
+                  View all {expirationAlerts.length} items →
+                </Link>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  icon,
-  alert,
-}: {
-  label: string
-  value: number
-  icon: React.ReactNode
-  alert?: boolean
-}) {
-  return (
-    <div className={`bg-white rounded-xl border p-5 ${alert ? 'border-red-200' : 'border-gray-200'}`}>
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${alert ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-          {icon}
         </div>
-        <div>
-          <p className="text-sm text-gray-500">{label}</p>
-          <p className={`text-2xl font-bold ${alert ? 'text-red-600' : 'text-gray-900'}`}>
-            {value.toLocaleString()}
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
