@@ -9,6 +9,7 @@ const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/inventory', label: 'Inventory' },
   { href: '/par-levels', label: 'Par Levels' },
+  { href: '/products', label: 'Products' },
 ]
 
 export default function Nav({ userEmail }: { userEmail: string }) {
