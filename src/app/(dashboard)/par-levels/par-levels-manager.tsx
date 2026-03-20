@@ -7,17 +7,18 @@ import { useRouter } from 'next/navigation'
 interface ParLevel {
   id: string
   facility_id: string
-  gtin: string
+  product_group_id: string | null
+  gtin: string | null
   min_quantity: number
   max_quantity: number | null
-  product_catalog: { description: string; reference_number: string } | null
-  facilities: { name: string } | null
+  product_groups: { catalog_name: string; display_name: string } | { catalog_name: string; display_name: string }[] | null
+  facilities: { name: string } | { name: string }[] | null
 }
 
-interface Product {
-  gtin: string
-  reference_number: string
-  description: string
+interface ProductGroup {
+  id: string
+  catalog_name: string
+  display_name: string
 }
 
 interface Facility {
@@ -25,23 +26,28 @@ interface Facility {
   name: string
 }
 
+function unwrap<T>(val: T | T[] | null): T | null {
+  if (Array.isArray(val)) return val[0] ?? null
+  return val
+}
+
 export default function ParLevelsManager({
   parLevels,
   facilities,
-  products,
+  productGroups,
   currentCounts,
   userRole,
 }: {
   parLevels: ParLevel[]
   facilities: Facility[]
-  products: Product[]
+  productGroups: ProductGroup[]
   currentCounts: Record<string, Record<string, number>>
   userRole: string
 }) {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [facilityId, setFacilityId] = useState('')
-  const [gtin, setGtin] = useState('')
+  const [productGroupId, setProductGroupId] = useState('')
   const [minQty, setMinQty] = useState(1)
   const [maxQty, setMaxQty] = useState<number | ''>('')
   const [productSearch, setProductSearch] = useState('')
@@ -54,15 +60,16 @@ export default function ParLevelsManager({
   const supabase = createClient()
   const canEdit = userRole === 'admin' || userRole === 'manager'
 
-  const filteredProducts = products.filter(
-    (p) =>
-      p.description.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.reference_number.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.gtin.includes(productSearch)
+  const filteredProductGroups = productGroups.filter(
+    (pg) =>
+      pg.display_name.toLowerCase().includes(productSearch.toLowerCase()) ||
+      pg.catalog_name.toLowerCase().includes(productSearch.toLowerCase())
   ).slice(0, 20)
 
   const getStatus = (pl: ParLevel) => {
-    const current = currentCounts[pl.facility_id]?.[pl.gtin] ?? 0
+    const groupId = pl.product_group_id
+    if (!groupId) return 'ok'
+    const current = currentCounts[pl.facility_id]?.[groupId] ?? 0
     if (current < pl.min_quantity) return 'below'
     if (pl.max_quantity && current > pl.max_quantity) return 'over'
     return 'ok'
@@ -76,8 +83,8 @@ export default function ParLevelsManager({
   })
 
   const handleSave = async () => {
-    if (!facilityId || !gtin) {
-      setError('Please select a facility and product.')
+    if (!facilityId || !productGroupId) {
+      setError('Please select a facility and product group.')
       return
     }
     setSaving(true)
@@ -85,7 +92,7 @@ export default function ParLevelsManager({
 
     const payload = {
       facility_id: facilityId,
-      gtin,
+      product_group_id: productGroupId,
       min_quantity: minQty,
       max_quantity: maxQty === '' ? null : maxQty,
       updated_at: new Date().toISOString(),
@@ -116,7 +123,7 @@ export default function ParLevelsManager({
   const startEdit = (pl: ParLevel) => {
     setEditingId(pl.id)
     setFacilityId(pl.facility_id)
-    setGtin(pl.gtin)
+    setProductGroupId(pl.product_group_id ?? '')
     setMinQty(pl.min_quantity)
     setMaxQty(pl.max_quantity ?? '')
     setShowForm(true)
@@ -127,13 +134,15 @@ export default function ParLevelsManager({
     setShowForm(false)
     setEditingId(null)
     setFacilityId('')
-    setGtin('')
+    setProductGroupId('')
     setMinQty(1)
     setMaxQty('')
     setProductSearch('')
     setSaving(false)
     setError(null)
   }
+
+  const selectedGroup = productGroups.find((pg) => pg.id === productGroupId)
 
   return (
     <div className="space-y-4">
@@ -200,15 +209,22 @@ export default function ParLevelsManager({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-              {gtin ? (
+              <label className="block text-sm font-medium text-gray-700 mb-1">Product Group</label>
+              {selectedGroup ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-900 flex-1 truncate">
-                    {products.find((p) => p.gtin === gtin)?.description ?? gtin}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-gray-900 block truncate">
+                      {selectedGroup.display_name}
+                    </span>
+                    {selectedGroup.display_name !== selectedGroup.catalog_name && (
+                      <span className="text-xs text-gray-400 block truncate">
+                        Catalog: {selectedGroup.catalog_name}
+                      </span>
+                    )}
+                  </div>
                   <button
-                    onClick={() => setGtin('')}
-                    className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border rounded"
+                    onClick={() => setProductGroupId('')}
+                    className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border rounded shrink-0"
                   >
                     Change
                   </button>
@@ -217,25 +233,27 @@ export default function ParLevelsManager({
                 <div>
                   <input
                     type="text"
-                    placeholder="Search products..."
+                    placeholder="Search product groups..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   />
                   {productSearch && (
-                    <div className="mt-1 max-h-48 overflow-y-auto border border-gray-200 rounded-lg bg-white">
-                      {filteredProducts.map((p) => (
+                    <div className="mt-1 max-h-48 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                      {filteredProductGroups.map((pg) => (
                         <button
-                          key={p.gtin}
-                          onClick={() => { setGtin(p.gtin); setProductSearch('') }}
+                          key={pg.id}
+                          onClick={() => { setProductGroupId(pg.id); setProductSearch('') }}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-50 last:border-0"
                         >
-                          <span className="font-medium text-gray-900">{p.description}</span>
-                          <span className="text-gray-500 text-xs block">{p.reference_number}</span>
+                          <span className="font-medium text-gray-900">{pg.display_name}</span>
+                          {pg.display_name !== pg.catalog_name && (
+                            <span className="text-gray-400 text-xs block">Catalog: {pg.catalog_name}</span>
+                          )}
                         </button>
                       ))}
-                      {filteredProducts.length === 0 && (
-                        <p className="px-3 py-2 text-sm text-gray-400">No products found.</p>
+                      {filteredProductGroups.length === 0 && (
+                        <p className="px-3 py-2 text-sm text-gray-400">No product groups found.</p>
                       )}
                     </div>
                   )}
@@ -291,8 +309,7 @@ export default function ParLevelsManager({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-gray-600 font-medium">Product</th>
-                <th className="text-left py-3 px-4 text-gray-600 font-medium">Reference</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Product Group</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Facility</th>
                 <th className="text-center py-3 px-4 text-gray-600 font-medium">Current</th>
                 <th className="text-center py-3 px-4 text-gray-600 font-medium">Min</th>
@@ -303,17 +320,24 @@ export default function ParLevelsManager({
             </thead>
             <tbody>
               {filteredParLevels.map((pl) => {
-                const current = currentCounts[pl.facility_id]?.[pl.gtin] ?? 0
+                const group = unwrap(pl.product_groups)
+                const facility = unwrap(pl.facilities)
+                const groupId = pl.product_group_id
+                const current = groupId ? (currentCounts[pl.facility_id]?.[groupId] ?? 0) : 0
                 const status = getStatus(pl)
                 return (
                   <tr key={pl.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                    <td className="py-2.5 px-4 font-medium text-gray-900 max-w-xs truncate">
-                      {pl.product_catalog?.description ?? '—'}
+                    <td className="py-2.5 px-4 max-w-xs">
+                      <span className="font-medium text-gray-900 block truncate">
+                        {group?.display_name ?? '—'}
+                      </span>
+                      {group && group.display_name !== group.catalog_name && (
+                        <span className="text-xs text-gray-400 block truncate">
+                          {group.catalog_name}
+                        </span>
+                      )}
                     </td>
-                    <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
-                      {pl.product_catalog?.reference_number ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-600">{pl.facilities?.name ?? '—'}</td>
+                    <td className="py-2.5 px-4 text-gray-600">{facility?.name ?? '—'}</td>
                     <td className="py-2.5 px-4 text-center font-semibold text-gray-900">{current}</td>
                     <td className="py-2.5 px-4 text-center text-gray-600">{pl.min_quantity}</td>
                     <td className="py-2.5 px-4 text-center text-gray-600">{pl.max_quantity ?? '—'}</td>
@@ -349,7 +373,7 @@ export default function ParLevelsManager({
               })}
               {filteredParLevels.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? 8 : 7} className="py-8 text-center text-gray-400">
+                  <td colSpan={canEdit ? 7 : 6} className="py-8 text-center text-gray-400">
                     {parLevels.length === 0
                       ? 'No par levels set yet. Click "+ Set Par Level" to get started.'
                       : 'No par levels match your filters.'}

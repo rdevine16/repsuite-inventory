@@ -35,10 +35,12 @@ export default function InventoryTable({
   items,
   facilities,
   sessions,
+  gtinDisplayName,
 }: {
   items: InventoryItem[]
   facilities: Facility[]
   sessions: Session[]
+  gtinDisplayName: Record<string, string>
 }) {
   const [search, setSearch] = useState('')
   const [facilityFilter, setFacilityFilter] = useState('all')
@@ -68,7 +70,8 @@ export default function InventoryTable({
           item.description?.toLowerCase().includes(q) ||
           item.reference_number?.toLowerCase().includes(q) ||
           item.gtin?.includes(q) ||
-          item.lot_number?.toLowerCase().includes(q)
+          item.lot_number?.toLowerCase().includes(q) ||
+          (item.gtin && gtinDisplayName[item.gtin]?.toLowerCase().includes(q))
       )
     }
 
@@ -203,8 +206,13 @@ export default function InventoryTable({
             <tbody>
               {paginatedItems.map((item) => (
                 <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="py-2.5 px-4 font-medium text-gray-900 max-w-xs truncate">
-                    {item.description ?? '—'}
+                  <td className="py-2.5 px-4 max-w-xs">
+                    <span className="font-medium text-gray-900 block truncate">
+                      {(item.gtin && gtinDisplayName[item.gtin]) || item.description || '—'}
+                    </span>
+                    {item.gtin && gtinDisplayName[item.gtin] && gtinDisplayName[item.gtin] !== item.description && (
+                      <span className="text-xs text-gray-400 block truncate">{item.description}</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
                     {item.reference_number ?? '—'}

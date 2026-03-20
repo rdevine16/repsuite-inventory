@@ -45,32 +45,41 @@ export default async function DashboardPage() {
     .lt('expiration_date', new Date().toISOString().split('T')[0])
     .limit(5)
 
-  // Fetch par level alerts
+  // Fetch par level alerts (now using product_groups)
   const { data: parLevels } = await supabase
     .from('par_levels')
-    .select('*, product_catalog(description, reference_number), facilities(name)')
+    .select('*, product_groups(catalog_name, display_name), facilities(name)')
 
-  // Count items per GTIN per facility for par level comparison
+  // Build gtin -> product_group_id mapping
+  const { data: catalogMapping } = await supabase
+    .from('product_catalog')
+    .select('gtin, product_group_id')
+
+  const gtinToGroup: Record<string, string> = {}
+  catalogMapping?.forEach((item: { gtin: string; product_group_id: string | null }) => {
+    if (item.product_group_id) gtinToGroup[item.gtin] = item.product_group_id
+  })
+
+  // Count items per facility per product_group
   const { data: itemsByGtin } = await supabase
     .from('inventory_items')
     .select('gtin, session_id, inventory_sessions(facility_id)')
 
-  // Build facility item count map
-  const facilityGtinCounts: Record<string, Record<string, number>> = {}
+  const facilityGroupCounts: Record<string, Record<string, number>> = {}
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   itemsByGtin?.forEach((item: any) => {
     const sessions = item.inventory_sessions
     const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
-    if (facilityId && item.gtin) {
-      if (!facilityGtinCounts[facilityId]) facilityGtinCounts[facilityId] = {}
-      facilityGtinCounts[facilityId][item.gtin] = (facilityGtinCounts[facilityId][item.gtin] || 0) + 1
+    const groupId = item.gtin ? gtinToGroup[item.gtin] : null
+    if (facilityId && groupId) {
+      if (!facilityGroupCounts[facilityId]) facilityGroupCounts[facilityId] = {}
+      facilityGroupCounts[facilityId][groupId] = (facilityGroupCounts[facilityId][groupId] || 0) + 1
     }
   })
 
   // Find below-par items
   const belowParAlerts: Array<{
     product: string
-    reference: string
     facility: string
     current: number
     min: number
@@ -78,13 +87,14 @@ export default async function DashboardPage() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parLevels?.forEach((pl: any) => {
-    const current = facilityGtinCounts[pl.facility_id]?.[pl.gtin] || 0
+    const groupId = pl.product_group_id
+    if (!groupId) return
+    const current = facilityGroupCounts[pl.facility_id]?.[groupId] || 0
     if (current < pl.min_quantity) {
-      const catalog = Array.isArray(pl.product_catalog) ? pl.product_catalog[0] : pl.product_catalog
+      const group = Array.isArray(pl.product_groups) ? pl.product_groups[0] : pl.product_groups
       const facility = Array.isArray(pl.facilities) ? pl.facilities[0] : pl.facilities
       belowParAlerts.push({
-        product: catalog?.description ?? 'Unknown',
-        reference: catalog?.reference_number ?? '',
+        product: group?.display_name ?? 'Unknown',
         facility: facility?.name ?? 'Unknown',
         current,
         min: pl.min_quantity,
@@ -159,7 +169,7 @@ export default async function DashboardPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{alert.product}</p>
-                    <p className="text-xs text-gray-500">{alert.reference} &middot; {alert.facility}</p>
+                    <p className="text-xs text-gray-500">{alert.facility}</p>
                     <p className="text-xs text-red-600 font-medium mt-1">
                       {alert.current} on hand / {alert.min} minimum
                     </p>

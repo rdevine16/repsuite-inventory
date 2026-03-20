@@ -19,6 +19,20 @@ export default async function InventoryPage() {
     .select('*, inventory_sessions(facility_id, facilities(name))')
     .order('scanned_at', { ascending: false })
 
+  // Build gtin -> display_name mapping
+  const { data: catalogWithGroups } = await supabase
+    .from('product_catalog')
+    .select('gtin, product_groups(display_name)')
+
+  const gtinDisplayName: Record<string, string> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  catalogWithGroups?.forEach((item: any) => {
+    const group = Array.isArray(item.product_groups) ? item.product_groups[0] : item.product_groups
+    if (group?.display_name) {
+      gtinDisplayName[item.gtin] = group.display_name
+    }
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -30,6 +44,7 @@ export default async function InventoryPage() {
         items={items ?? []}
         facilities={facilities ?? []}
         sessions={sessions ?? []}
+        gtinDisplayName={gtinDisplayName}
       />
     </div>
   )
