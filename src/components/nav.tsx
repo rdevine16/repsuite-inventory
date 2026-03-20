@@ -9,6 +9,7 @@ const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/inventory', label: 'Inventory' },
   { href: '/par-levels', label: 'Par Levels' },
+  { href: '/cases', label: 'Cases' },
   { href: '/products', label: 'Products' },
 ]
 
