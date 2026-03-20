@@ -64,19 +64,20 @@ const MDM_X3_LETTER_MAP: Record<string, string> = {
   '7236-2-864': 'J', '1236-2-864': 'J',
 }
 
-// Delta ceramic head offset decode
-const DELTA_OFFSET: Record<string, string> = {
-  '0': '-4', '1': '0', '2': '+4', '3': '-2.7', '4': '-2.5', '5': '+2.5', '7': '+7.5',
+// Delta ceramic head offset decode — per diameter
+const DELTA_OFFSET: Record<string, Record<string, string>> = {
+  '28': { '0': '-4', '1': '0', '2': '+4', '3': '-2.7' },
+  '32': { '0': '-4', '1': '0', '2': '+4' },
+  '36': { '0': '-5', '1': '0', '2': '+5', '4': '-2.5', '5': '+2.5', '7': '+7.5' },
 }
 
-// V40 CoCr head offset decode
-const V40_OFFSET: Record<string, string> = {
-  '0': '-4', '1': '0', '2': '+3', '3': '+8', '4': '+12',
-}
-
-// V40 has a special case for 36mm
-const V40_OFFSET_36: Record<string, string> = {
-  '3': '+10',
+// V40 CoCr head offset decode — per diameter
+const V40_OFFSET: Record<string, Record<string, string>> = {
+  '22': { '1': '0', '2': '+3', '3': '+8' },
+  '28': { '3': '+8' },
+  '32': { '3': '+8', '4': '+12' },
+  '36': { '3': '+10' },
+  '40': { '0': '-4', '3': '+8', '4': '+12' },
 }
 
 // Maps a reference number to its grid position: category|variant|size
@@ -146,16 +147,11 @@ export function refToGridKey(ref: string): string | null {
   for (const rule of HIP_RULES.heads) {
     const match = ref.match(rule.pattern)
     if (match) {
-      const diameter = parseInt(match[2]).toString() + 'mm'
+      const diameterNum = parseInt(match[2]).toString()
+      const diameter = diameterNum + 'mm'
       const offsetCode = match[1]
-      let offset: string | undefined
-      if (rule.category === 'hip_head_delta') {
-        offset = DELTA_OFFSET[offsetCode]
-      } else {
-        // V40 36mm has special offset
-        if (match[2] === '36') offset = V40_OFFSET_36[offsetCode] ?? V40_OFFSET[offsetCode]
-        else offset = V40_OFFSET[offsetCode]
-      }
+      const offsetMap = rule.category === 'hip_head_delta' ? DELTA_OFFSET[diameterNum] : V40_OFFSET[diameterNum]
+      const offset = offsetMap?.[offsetCode]
       if (offset) return `${rule.category}|${diameter}|${offset}`
     }
   }

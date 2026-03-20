@@ -277,6 +277,8 @@ function PolyGrid({
   const variants = 'variants' in section ? (section.variants as readonly string[]) : []
   const rowLabel = 'rowLabel' in section ? (section.rowLabel as string) : ''
   const sizeLabel = 'sizeLabel' in section ? (section.sizeLabel as string) : ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sizesByVariant: Record<string, string[]> | null = 'sizesByVariant' in section ? (section as any).sizesByVariant : null
 
   return (
     <table className="w-full">
@@ -293,10 +295,16 @@ function PolyGrid({
         </tr>
       </thead>
       <tbody>
-        {variants.map((variant) => (
+        {variants.map((variant) => {
+          const validSizes = sizesByVariant?.[variant]
+          return (
           <tr key={variant} className="border-t border-gray-100">
             <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant}</td>
-            {section.sizes.map((size) => (
+            {section.sizes.map((size) => {
+              if (validSizes && !validSizes.includes(size as string)) {
+                return <td key={size} className="py-2.5 px-1 text-center"><span className="text-gray-200">—</span></td>
+              }
+              return (
               <td key={size} className="py-2.5 px-1">
                 <ParCell
                   parKey={`${section.id}|${variant}|${size}`}
@@ -307,9 +315,11 @@ function PolyGrid({
                   onSave={(val) => onSave(section.id, variant, size, val)}
                 />
               </td>
-            ))}
+              )
+            })}
           </tr>
-        ))}
+          )
+        })}
       </tbody>
     </table>
   )
