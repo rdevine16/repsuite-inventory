@@ -1,77 +1,71 @@
 import { createClient } from '@/lib/supabase-server'
-import ParLevelsManager from './par-levels-manager'
+import Link from 'next/link'
 
 export default async function ParLevelsPage() {
   const supabase = await createClient()
 
   const { data: facilities } = await supabase
     .from('facilities')
-    .select('id, name')
+    .select('id, name, address')
     .order('name')
 
-  const { data: parLevels } = await supabase
-    .from('par_levels')
-    .select('*, product_groups(catalog_name, display_name), facilities(name)')
-    .order('created_at', { ascending: false })
+  // Get par level counts per facility
+  const { data: parCounts } = await supabase
+    .from('component_par_levels')
+    .select('facility_id, par_quantity')
 
-  // Fetch product groups (not individual GTINs)
-  const { data: productGroups } = await supabase
-    .from('product_groups')
-    .select('id, catalog_name, display_name')
-    .order('display_name')
-
-  // Get current counts per facility/product_group
-  // We need to join inventory_items -> product_catalog -> product_groups
-  const { data: inventoryItems } = await supabase
-    .from('inventory_items')
-    .select('gtin, session_id, inventory_sessions(facility_id)')
-
-  // Get product_catalog gtin -> product_group_id mapping
-  const { data: catalogMapping } = await supabase
-    .from('product_catalog')
-    .select('gtin, product_group_id')
-
-  const gtinToGroup: Record<string, string> = {}
-  catalogMapping?.forEach((item: { gtin: string; product_group_id: string | null }) => {
-    if (item.product_group_id) {
-      gtinToGroup[item.gtin] = item.product_group_id
-    }
+  const facilityCounts: Record<string, { total: number; set: number }> = {}
+  parCounts?.forEach((p: { facility_id: string; par_quantity: number }) => {
+    if (!facilityCounts[p.facility_id]) facilityCounts[p.facility_id] = { total: 0, set: 0 }
+    facilityCounts[p.facility_id].total++
+    if (p.par_quantity > 0) facilityCounts[p.facility_id].set++
   })
-
-  // Count items per facility per product_group
-  const currentCounts: Record<string, Record<string, number>> = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  inventoryItems?.forEach((item: any) => {
-    const sessions = item.inventory_sessions
-    const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
-    const groupId = item.gtin ? gtinToGroup[item.gtin] : null
-    if (facilityId && groupId) {
-      if (!currentCounts[facilityId]) currentCounts[facilityId] = {}
-      currentCounts[facilityId][groupId] = (currentCounts[facilityId][groupId] || 0) + 1
-    }
-  })
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .single()
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Par Levels</h1>
-        <p className="text-gray-500 mt-1">
-          Set minimum and maximum stock levels for product groups at each facility
-        </p>
+        <p className="text-gray-500 mt-1">Select a facility to manage implant par levels</p>
       </div>
 
-      <ParLevelsManager
-        parLevels={parLevels ?? []}
-        facilities={facilities ?? []}
-        productGroups={productGroups ?? []}
-        currentCounts={currentCounts}
-        userRole={profile?.role ?? 'viewer'}
-      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {facilities?.map((facility) => {
+          const counts = facilityCounts[facility.id]
+          return (
+            <Link
+              key={facility.id}
+              href={`/par-levels/${facility.id}`}
+              className="bg-white rounded-xl border border-gray-200 p-6 hover:border-blue-300 hover:shadow-md transition group"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition">
+                    {facility.name}
+                  </h3>
+                  {facility.address && (
+                    <p className="text-sm text-gray-400 mt-0.5">{facility.address}</p>
+                  )}
+                </div>
+                <svg className="w-5 h-5 text-gray-300 group-hover:text-blue-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+              {counts && (
+                <div className="mt-4 flex gap-4 text-sm">
+                  <span className="text-gray-500">
+                    <span className="font-medium text-gray-900">{counts.set}</span> pars set
+                  </span>
+                </div>
+              )}
+            </Link>
+          )
+        })}
+        {(!facilities || facilities.length === 0) && (
+          <p className="text-gray-400 col-span-full text-center py-8">
+            No facilities found. Facilities are created when inventory is scanned from the iOS app.
+          </p>
+        )}
+      </div>
     </div>
   )
 }
