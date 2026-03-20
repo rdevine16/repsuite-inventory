@@ -139,6 +139,19 @@ export const HIP_SECTIONS = [
     } as Record<string, string[]>,
   },
   {
+    id: 'hip_head_universal',
+    label: 'Heads — Universal',
+    fixationGroups: null,
+    rowLabel: 'Type',
+    sizeLabel: '',
+    variants: ['Delta Universal 40mm Head', 'V40 Adapter Sleeve'],
+    sizes: ['-2.5', '0', '+4'],
+    sizesByVariant: {
+      'Delta Universal 40mm Head': ['0'],
+      'V40 Adapter Sleeve': ['-2.5', '0', '+4'],
+    } as Record<string, string[]>,
+  },
+  {
     id: 'hip_screw',
     label: 'Screws',
     fixationGroups: null,

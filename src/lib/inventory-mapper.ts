@@ -44,6 +44,14 @@ const HIP_RULES = {
     // V40 CoCr: 6260-9-{offset}{size}
     { pattern: /^6260-9-(\d)(\d{2})$/, category: 'hip_head_v40' },
   ],
+  universal: [
+    // Delta Universal 40mm Head: 6519-1-040
+    { pattern: /^6519-1-040$/, category: 'hip_head_universal', variant: 'Delta Universal 40mm Head', size: '0' },
+    // V40 Adapter Sleeves: 6519-T-{offset code}
+    { pattern: /^6519-T-025$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '-2.5' },
+    { pattern: /^6519-T-100$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '0' },
+    { pattern: /^6519-T-204$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '+4' },
+  ],
   screws: [
     // Hex: 7030-65{length}
     { pattern: /^7030-65(\d{2})$/, category: 'hip_screw', variant: 'Hex 6.5mm' },
@@ -154,6 +162,12 @@ export function refToGridKey(ref: string): string | null {
       const offset = offsetMap?.[offsetCode]
       if (offset) return `${rule.category}|${diameter}|${offset}`
     }
+  }
+
+  // Universal heads/sleeves (direct match)
+  for (const rule of HIP_RULES.universal) {
+    const match = ref.match(rule.pattern)
+    if (match) return `${rule.category}|${rule.variant}|${rule.size}`
   }
 
   // Screws
