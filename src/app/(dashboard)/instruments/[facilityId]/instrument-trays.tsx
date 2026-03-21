@@ -72,8 +72,8 @@ export default function InstrumentTrays({
     const catTrays = trays.filter((t) => t.category === cat.id)
     return {
       ...cat,
-      trays: catTrays.filter((t) => t.item_type === 'tray').length,
-      instruments: catTrays.filter((t) => t.item_type === 'instrument').length,
+      trays: catTrays.filter((t) => t.item_type === 'tray').reduce((sum, t) => sum + t.quantity, 0),
+      instruments: catTrays.filter((t) => t.item_type === 'instrument').reduce((sum, t) => sum + t.quantity, 0),
       issues: catTrays.filter((t) => t.status !== 'complete').length,
     }
   })
