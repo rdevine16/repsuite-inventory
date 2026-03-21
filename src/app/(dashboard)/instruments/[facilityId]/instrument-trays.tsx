@@ -108,78 +108,65 @@ export default function InstrumentTrays({
         />
       )}
 
-      {/* Tray Cards */}
+      {/* Tray Table */}
       {filteredTrays.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-400">
           <p>No {tab} trays tracked at this facility.</p>
           {canEdit && <p className="text-sm mt-1">Click &quot;+ Add Tray&quot; to get started.</p>}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredTrays.map((tray) => {
-            const statusConfig = STATUS_CONFIG[tray.status as keyof typeof STATUS_CONFIG]
-            return (
-              <div
-                key={tray.id}
-                className={`rounded-xl border p-5 ${
-                  tray.status === 'not_usable'
-                    ? 'border-red-200 bg-red-50/30'
-                    : tray.status === 'usable'
-                    ? 'border-amber-200 bg-amber-50/30'
-                    : 'border-gray-200 bg-white'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{tray.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      {tray.set_id && (
-                        <span className="text-xs text-gray-500 font-mono">Set: {tray.set_id}</span>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Tray Name</th>
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Set ID</th>
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Type</th>
+                  <th className="text-center py-3 px-4 text-gray-600 font-medium">Status</th>
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Missing Items</th>
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Notes</th>
+                  {canEdit && <th className="text-right py-3 px-4 text-gray-600 font-medium w-24">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTrays.map((tray) => {
+                  const statusConfig = STATUS_CONFIG[tray.status as keyof typeof STATUS_CONFIG]
+                  return (
+                    <tr key={tray.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <td className="py-3 px-4 font-medium text-gray-900">{tray.name}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-gray-500">{tray.set_id ?? '—'}</td>
+                      <td className="py-3 px-4 text-xs text-gray-500 capitalize">{tray.tray_type}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${statusConfig.color}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`}></span>
+                          {statusConfig.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-xs text-gray-600 max-w-xs truncate">{tray.missing_items ?? '—'}</td>
+                      <td className="py-3 px-4 text-xs text-gray-400 max-w-xs truncate">{tray.notes ?? '—'}</td>
+                      {canEdit && (
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => { setEditingTray(tray); setShowForm(true) }}
+                            className="text-blue-600 hover:text-blue-700 text-xs font-medium mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(tray.id)}
+                            className="text-gray-400 hover:text-red-600 text-xs"
+                          >
+                            Remove
+                          </button>
+                        </td>
                       )}
-                      <span className="text-xs text-gray-400 capitalize">{tray.tray_type}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${statusConfig.dot}`}></span>
-                    <span className={`text-xs font-medium ${
-                      tray.status === 'complete' ? 'text-emerald-600' :
-                      tray.status === 'usable' ? 'text-amber-600' : 'text-red-600'
-                    }`}>
-                      {statusConfig.label}
-                    </span>
-                  </div>
-                </div>
-
-                {tray.missing_items && (
-                  <div className="mb-3 p-2.5 bg-white/60 rounded-lg border border-gray-100">
-                    <p className="text-xs text-gray-500 font-medium mb-0.5">Missing</p>
-                    <p className="text-sm text-gray-700">{tray.missing_items}</p>
-                  </div>
-                )}
-
-                {tray.notes && (
-                  <p className="text-xs text-gray-400 mb-3">{tray.notes}</p>
-                )}
-
-                {canEdit && (
-                  <div className="flex gap-2 pt-2 border-t border-gray-100">
-                    <button
-                      onClick={() => { setEditingTray(tray); setShowForm(true) }}
-                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tray.id)}
-                      className="text-xs text-gray-400 hover:text-red-600"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
