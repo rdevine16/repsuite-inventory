@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -9,9 +9,11 @@ interface Tray {
   facility_id: string
   name: string
   set_id: string | null
+  catalog_number: string | null
   category: string
   tray_type: string
   item_type: string
+  quantity: number
   status: string
   missing_items: string | null
   notes: string | null
@@ -29,6 +31,8 @@ const STATUS_CONFIG = {
   not_usable: { label: 'Not Usable', color: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
 }
 
+type SortField = 'name' | 'item_type' | 'status'
+
 export default function InstrumentTrays({
   facilityId,
   trays,
@@ -41,26 +45,64 @@ export default function InstrumentTrays({
   const [tab, setTab] = useState('knee')
   const [showForm, setShowForm] = useState(false)
   const [editingTray, setEditingTray] = useState<Tray | null>(null)
+  const [sortField, setSortField] = useState<SortField>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'issues'>('all')
   const router = useRouter()
   const supabase = createClient()
 
-  const filteredTrays = trays.filter((t) => t.category === tab)
+  const filteredTrays = useMemo(() => {
+    let result = trays.filter((t) => t.category === tab)
 
-  const categoryCounts = CATEGORIES.map((cat) => ({
-    ...cat,
-    count: trays.filter((t) => t.category === cat.id).length,
-    issues: trays.filter((t) => t.category === cat.id && t.status !== 'complete').length,
-  }))
+    if (statusFilter === 'issues') {
+      result = result.filter((t) => t.status !== 'complete')
+    }
+
+    result.sort((a, b) => {
+      const aVal = a[sortField] ?? ''
+      const bVal = b[sortField] ?? ''
+      if (sortDir === 'asc') return aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+      return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
+    })
+
+    return result
+  }, [trays, tab, sortField, sortDir, statusFilter])
+
+  const categoryCounts = CATEGORIES.map((cat) => {
+    const catTrays = trays.filter((t) => t.category === cat.id)
+    return {
+      ...cat,
+      trays: catTrays.filter((t) => t.item_type === 'tray').length,
+      instruments: catTrays.filter((t) => t.item_type === 'instrument').length,
+      issues: catTrays.filter((t) => t.status !== 'complete').length,
+    }
+  })
+
+  const currentCat = categoryCounts.find((c) => c.id === tab)
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <span className="text-gray-300 ml-1">↕</span>
+    return <span className="text-blue-600 ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Remove this tray?')) return
+    if (!confirm('Remove this item?')) return
     await supabase.from('instrument_trays').delete().eq('id', id)
     router.refresh()
   }
 
   return (
     <div className="space-y-4">
-      {/* Tabs */}
+      {/* Tabs + Actions */}
       <div className="flex items-center justify-between">
         <div className="border-b border-gray-200">
           <nav className="flex gap-6">
@@ -75,10 +117,10 @@ export default function InstrumentTrays({
                 }`}
               >
                 {cat.label}
-                {cat.count > 0 && (
+                {(cat.trays + cat.instruments) > 0 && (
                   <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
                     tab === cat.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
-                  }`}>{cat.count}</span>
+                  }`}>{cat.trays + cat.instruments}</span>
                 )}
                 {cat.issues > 0 && (
                   <span className="ml-1 text-xs text-red-500">{cat.issues}</span>
@@ -88,15 +130,40 @@ export default function InstrumentTrays({
           </nav>
         </div>
 
-        {canEdit && (
-          <button
-            onClick={() => { setEditingTray(null); setShowForm(true) }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+        <div className="flex gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'issues')}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
           >
-            + Add Item
-          </button>
-        )}
+            <option value="all">All Status</option>
+            <option value="issues">Issues Only</option>
+          </select>
+          {canEdit && (
+            <button
+              onClick={() => { setEditingTray(null); setShowForm(true) }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+            >
+              + Add Item
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Summary */}
+      {currentCat && (currentCat.trays + currentCat.instruments) > 0 && (
+        <div className="flex gap-4 text-sm">
+          <span className="text-gray-500">
+            <span className="font-semibold text-gray-900">{currentCat.trays}</span> trays
+          </span>
+          <span className="text-gray-500">
+            <span className="font-semibold text-gray-900">{currentCat.instruments}</span> instruments
+          </span>
+          {currentCat.issues > 0 && (
+            <span className="text-red-600 font-medium">{currentCat.issues} with issues</span>
+          )}
+        </div>
+      )}
 
       {/* Add/Edit Form */}
       {showForm && (
@@ -109,11 +176,11 @@ export default function InstrumentTrays({
         />
       )}
 
-      {/* Tray Table */}
+      {/* Table */}
       {filteredTrays.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-400">
-          <p>No {tab} trays tracked at this facility.</p>
-          {canEdit && <p className="text-sm mt-1">Click &quot;+ Add Tray&quot; to get started.</p>}
+          <p>{statusFilter === 'issues' ? 'No issues found.' : `No ${tab} items tracked at this facility.`}</p>
+          {canEdit && statusFilter === 'all' && <p className="text-sm mt-1">Click &quot;+ Add Item&quot; to get started.</p>}
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -121,14 +188,30 @@ export default function InstrumentTrays({
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Name</th>
+                  <th
+                    className="text-left py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
+                    onClick={() => handleSort('name')}
+                  >
+                    Name <SortIcon field="name" />
+                  </th>
                   <th className="text-left py-3 px-4 text-gray-600 font-medium">Set ID</th>
-                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Item</th>
+                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Ref #</th>
+                  <th
+                    className="text-left py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
+                    onClick={() => handleSort('item_type')}
+                  >
+                    Item <SortIcon field="item_type" />
+                  </th>
                   <th className="text-left py-3 px-4 text-gray-600 font-medium">Config</th>
-                  <th className="text-center py-3 px-4 text-gray-600 font-medium">Status</th>
+                  <th className="text-center py-3 px-4 text-gray-600 font-medium">Qty</th>
+                  <th
+                    className="text-center py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status <SortIcon field="status" />
+                  </th>
                   <th className="text-left py-3 px-4 text-gray-600 font-medium">Missing Items</th>
-                  <th className="text-left py-3 px-4 text-gray-600 font-medium">Notes</th>
-                  {canEdit && <th className="text-right py-3 px-4 text-gray-600 font-medium w-24">Actions</th>}
+                  {canEdit && <th className="text-right py-3 px-4 text-gray-600 font-medium w-24"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -136,10 +219,17 @@ export default function InstrumentTrays({
                   const statusConfig = STATUS_CONFIG[tray.status as keyof typeof STATUS_CONFIG]
                   return (
                     <tr key={tray.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="py-3 px-4 font-medium text-gray-900">{tray.name}</td>
+                      <td className="py-3 px-4">
+                        <span className="font-medium text-gray-900">{tray.name}</span>
+                        {tray.notes && (
+                          <span className="block text-xs text-gray-400 truncate max-w-xs">{tray.notes}</span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 font-mono text-xs text-gray-500">{tray.set_id ?? '—'}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-gray-500">{tray.catalog_number ?? '—'}</td>
                       <td className="py-3 px-4 text-xs text-gray-500 capitalize">{tray.item_type}</td>
                       <td className="py-3 px-4 text-xs text-gray-500 capitalize">{tray.tray_type}</td>
+                      <td className="py-3 px-4 text-center text-gray-600">{tray.quantity}</td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${statusConfig.color}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`}></span>
@@ -147,7 +237,6 @@ export default function InstrumentTrays({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-xs text-gray-600 max-w-xs truncate">{tray.missing_items ?? '—'}</td>
-                      <td className="py-3 px-4 text-xs text-gray-400 max-w-xs truncate">{tray.notes ?? '—'}</td>
                       {canEdit && (
                         <td className="py-3 px-4 text-right">
                           <button
@@ -197,9 +286,11 @@ function TrayForm({
 }) {
   const [name, setName] = useState(tray?.name ?? '')
   const [setId, setSetId] = useState(tray?.set_id ?? '')
+  const [catalogNumber, setCatalogNumber] = useState(tray?.catalog_number ?? '')
   const [category, setCategory] = useState(tray?.category ?? defaultCategory)
   const [itemType, setItemType] = useState(tray?.item_type ?? 'tray')
   const [trayType, setTrayType] = useState(tray?.tray_type ?? 'standard')
+  const [quantity, setQuantity] = useState(tray?.quantity ?? 1)
   const [status, setStatus] = useState(tray?.status ?? 'complete')
   const [missingItems, setMissingItems] = useState(tray?.missing_items ?? '')
   const [notes, setNotes] = useState(tray?.notes ?? '')
@@ -210,7 +301,7 @@ function TrayForm({
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setError('Tray name is required.')
+      setError('Name is required.')
       return
     }
     setSaving(true)
@@ -220,9 +311,11 @@ function TrayForm({
       facility_id: facilityId,
       name: name.trim(),
       set_id: setId.trim() || null,
+      catalog_number: catalogNumber.trim() || null,
       category,
       item_type: itemType,
       tray_type: trayType,
+      quantity,
       status,
       missing_items: missingItems.trim() || null,
       notes: notes.trim() || null,
@@ -254,7 +347,7 @@ function TrayForm({
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
           <input
@@ -272,6 +365,16 @@ function TrayForm({
             value={setId}
             onChange={(e) => setSetId(e.target.value)}
             placeholder="e.g., FD, 1, A"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ref #</label>
+          <input
+            type="text"
+            value={catalogNumber}
+            onChange={(e) => setCatalogNumber(e.target.value)}
+            placeholder="e.g., 393035"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
         </div>
@@ -310,6 +413,16 @@ function TrayForm({
           </select>
         </div>
         <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+          <input
+            type="number"
+            min={1}
+            value={quantity}
+            onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+        </div>
+        <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
           <select
             value={status}
@@ -327,11 +440,11 @@ function TrayForm({
             type="text"
             value={missingItems}
             onChange={(e) => setMissingItems(e.target.value)}
-            placeholder="e.g., 4mm drill guide, calcar planer"
+            placeholder="e.g., 4mm drill guide"
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-3">
           <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
           <input
             type="text"
