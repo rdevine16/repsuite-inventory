@@ -32,8 +32,8 @@ export default async function CasesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Cases</h1>
-        <p className="text-gray-500 mt-1">Completed surgical cases synced from RepSuite</p>
+        <h1 className="text-2xl font-bold text-gray-900">Usage</h1>
+        <p className="text-gray-500 mt-1">Completed surgical cases and implant usage synced from RepSuite</p>
       </div>
 
       {/* Token status banner */}

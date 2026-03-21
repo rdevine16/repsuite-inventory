@@ -9,7 +9,7 @@ const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/inventory', label: 'Inventory' },
   { href: '/par-levels', label: 'Par Levels' },
-  { href: '/cases', label: 'Cases' },
+  { href: '/cases', label: 'Usage' },
   { href: '/products', label: 'Products' },
 ]
 
