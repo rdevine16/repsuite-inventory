@@ -520,20 +520,25 @@ async function syncCases() {
     // Find usage items with no source and not yet notified
     const { data: missingSourceItems } = await supabase
       .from('case_usage_items')
-      .select('id, case_id, catalog_number, source_location, user_source_facility_id, notified_at, cases!inner(case_id, facility_id)')
+      .select('id, case_id, catalog_number')
       .is('source_location', null)
       .is('user_source_facility_id', null)
       .is('notified_at', null)
       .neq('current_status', 'deducted')
 
     if (missingSourceItems && missingSourceItems.length > 0) {
+      // Look up case_id -> case_id (display) mapping
+      const usageCaseIds = [...new Set(missingSourceItems.map((i) => i.case_id))]
+      const { data: usageCaseRows } = await supabase
+        .from('cases')
+        .select('id, case_id')
+        .in('id', usageCaseIds)
+      const caseIdMap = Object.fromEntries((usageCaseRows ?? []).map((c) => [c.id, c.case_id]))
+
       // Group by case for notification
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const byCaseId = new Map<string, { caseId: string; count: number }>()
       for (const item of missingSourceItems) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const caseInfo = item.cases as any
-        const caseId = caseInfo?.case_id ?? 'Unknown'
+        const caseId = caseIdMap[item.case_id] ?? 'Unknown'
         if (!byCaseId.has(caseId)) byCaseId.set(caseId, { caseId, count: 0 })
         byCaseId.get(caseId)!.count++
       }
@@ -565,7 +570,7 @@ async function syncCases() {
     // Detect source conflicts: RepSuite filled in source_location that differs from user-specified source
     const { data: conflictCandidates } = await supabase
       .from('case_usage_items')
-      .select('id, source_location, user_source_facility_id, source_conflict, cases!inner(case_id)')
+      .select('id, case_id, source_location, user_source_facility_id')
       .not('source_location', 'is', null)
       .not('user_source_facility_id', 'is', null)
       .eq('source_conflict', false)
@@ -573,16 +578,13 @@ async function syncCases() {
 
     if (conflictCandidates && conflictCandidates.length > 0) {
       const conflictIds: string[] = []
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const conflictCases = new Set<string>()
+      const conflictCaseDbIds = new Set<string>()
 
       for (const item of conflictCandidates) {
         const repsuiteFacilityId = facilityBySubInventory[item.source_location ?? '']
         if (repsuiteFacilityId && repsuiteFacilityId !== item.user_source_facility_id) {
           conflictIds.push(item.id)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const caseInfo = item.cases as any
-          conflictCases.add(caseInfo?.case_id ?? 'Unknown')
+          conflictCaseDbIds.add(item.case_id)
         }
       }
 
@@ -600,7 +602,7 @@ async function syncCases() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               title: 'Source Conflict Detected',
-              body: `${conflictIds.length} items on ${conflictCases.size} case(s) have conflicting sources`,
+              body: `${conflictIds.length} items on ${conflictCaseDbIds.size} case(s) have conflicting sources`,
               data: { type: 'source_conflict' },
             }),
           })
