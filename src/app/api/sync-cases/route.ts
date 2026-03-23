@@ -102,14 +102,16 @@ async function syncCases() {
   }
   const uniqueCases = Array.from(caseMap.values())
 
-  // Get facility mapping (repsuite site number → facility id)
+  // Get facility mapping (repsuite site number → facility id, sub-inventory → facility id)
   const { data: facilities } = await supabase
     .from('facilities')
-    .select('id, name, repsuite_site_number')
+    .select('id, name, repsuite_site_number, repsuite_sub_inventory_id')
 
   const facilityBySiteNumber: Record<string, string> = {}
-  facilities?.forEach((f: { id: string; repsuite_site_number?: string }) => {
+  const facilityBySubInventory: Record<string, string> = {}
+  facilities?.forEach((f: { id: string; repsuite_site_number?: string; repsuite_sub_inventory_id?: string }) => {
     if (f.repsuite_site_number) facilityBySiteNumber[f.repsuite_site_number] = f.id
+    if (f.repsuite_sub_inventory_id) facilityBySubInventory[f.repsuite_sub_inventory_id] = f.id
   })
 
   function extractSiteNumber(hospitalName: string | null): string | null {
@@ -430,16 +432,18 @@ async function syncCases() {
 
           if (usageError || !usageItem) continue
 
-          // Auto-deduct if the case is at a tracked facility and the item has a source location
-          // (items without source_location are instruments/disposables, not implants)
+          // Auto-deduct if the item has a source location that maps to a facility
           if (!sourceLocation || !caseRow.facility_id) continue
+
+          // Resolve source location to a facility via sub-inventory mapping
+          const sourceFacilityId = facilityBySubInventory[sourceLocation] ?? caseRow.facility_id
 
           // Find matching facility_inventory item (match by ref# and lot if available)
           let matchQuery = supabase
             .from('facility_inventory')
             .select('*')
             .eq('reference_number', catalogNumber)
-            .eq('facility_id', caseRow.facility_id)
+            .eq('facility_id', sourceFacilityId)
             .limit(1)
 
           if (lotNumber) {
@@ -455,7 +459,7 @@ async function syncCases() {
               .from('facility_inventory')
               .select('*')
               .eq('reference_number', catalogNumber)
-              .eq('facility_id', caseRow.facility_id)
+              .eq('facility_id', sourceFacilityId)
               .limit(1)
 
             inventoryItem = fallbackItems?.[0]
@@ -467,7 +471,7 @@ async function syncCases() {
           await supabase.from('used_items').insert({
             case_usage_item_id: usageItem.id,
             original_inventory_item_id: inventoryItem.id,
-            facility_id: caseRow.facility_id,
+            facility_id: sourceFacilityId,
             gtin: inventoryItem.gtin,
             reference_number: inventoryItem.reference_number,
             description: inventoryItem.description,
