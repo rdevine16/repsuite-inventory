@@ -82,13 +82,18 @@ export async function POST(request: Request) {
             data,
           }),
         })
-        if (res.ok) sent++
-      } catch {
-        // Continue with other tokens
+        if (res.ok) {
+          sent++
+        } else {
+          const errBody = await res.text()
+          console.error(`APNs error ${res.status}: ${errBody}`)
+        }
+      } catch (pushErr) {
+        console.error('Push send error:', pushErr)
       }
     }
 
-    return NextResponse.json({ sent, total: tokens.length })
+    return NextResponse.json({ sent, total: tokens.length, apnsHost })
   } catch (err) {
     console.error('Push error:', err)
     return NextResponse.json(
