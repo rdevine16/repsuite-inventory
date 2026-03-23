@@ -1,21 +1,70 @@
 import { createClient } from '@/lib/supabase-server'
+import GroupingsTabs from './groupings-tabs'
 import ProductGroupsManager from './product-groups-manager'
+import InstrumentCatalogManager from './instrument-catalog-manager'
+import FacilityMappingManager from './facility-mapping-manager'
+import SurgeonMappingManager from './surgeon-mapping-manager'
+import KitMappingManager from './kit-mapping-manager'
 
-export default async function ProductGroupsPage() {
+export default async function GroupingsPage() {
   const supabase = await createClient()
 
+  // Facilities data
+  const { data: facilities } = await supabase
+    .from('facilities')
+    .select('id, name, address, repsuite_site_number')
+    .order('name')
+
+  // Get unique RepSuite hospitals from synced cases
+  const { data: caseHospitals } = await supabase
+    .from('cases')
+    .select('hospital_name, hospital_site_number')
+
+  // Deduplicate
+  const hospitalMap = new Map<string, { hospital_name: string; hospital_site_number: string }>()
+  caseHospitals?.forEach((c) => {
+    if (c.hospital_site_number && !hospitalMap.has(c.hospital_site_number)) {
+      hospitalMap.set(c.hospital_site_number, {
+        hospital_name: c.hospital_name,
+        hospital_site_number: c.hospital_site_number,
+      })
+    }
+  })
+  const repsuiteHospitals = Array.from(hospitalMap.values()).sort((a, b) =>
+    a.hospital_name.localeCompare(b.hospital_name)
+  )
+
+  // Surgeon mappings
+  const { data: surgeonMappings } = await supabase
+    .from('surgeon_mappings')
+    .select('id, repsuite_name, display_name')
+    .order('display_name')
+
+  // Get unique surgeons from cases
+  const { data: caseSurgeons } = await supabase
+    .from('cases')
+    .select('surgeon_name')
+
+  const surgeonSet = new Set<string>()
+  caseSurgeons?.forEach((c) => {
+    if (c.surgeon_name) surgeonSet.add(c.surgeon_name)
+  })
+
+  const repsuiteSurgeons = Array.from(surgeonSet)
+    .sort()
+    .map((name) => ({ surgeon_name: name }))
+
+  // Product groups data
   const { data: productGroups } = await supabase
     .from('product_groups')
     .select('id, catalog_name, display_name')
     .order('display_name')
 
-  // Get all catalog items with their refs and group assignments
   const { data: catalogItems } = await supabase
     .from('product_catalog')
     .select('gtin, reference_number, description, product_group_id')
     .order('reference_number')
 
-  // Build group details: refs and GTIN counts per group
   const groupDetails: Record<string, { gtinCount: number; refs: string[] }> = {}
   catalogItems?.forEach((item) => {
     if (!item.product_group_id) return
@@ -26,25 +75,111 @@ export default async function ProductGroupsPage() {
     groupDetails[item.product_group_id].refs.push(item.reference_number)
   })
 
+  // Kit mappings
+  const { data: kitMappings } = await supabase
+    .from('kit_mappings')
+    .select('id, repsuite_name, display_name, category')
+    .order('display_name')
+
+  // Get unique set/kit names synced from iOS case details
+  const { data: repsuiteSetNames } = await supabase
+    .from('repsuite_set_names')
+    .select('set_name, set_type')
+    .order('set_name')
+
+  const repsuiteKits = (repsuiteSetNames ?? []).map((s) => ({ kit_name: s.set_name }))
+
+  // Instrument catalog data
+  const { data: instrumentCatalog } = await supabase
+    .from('instrument_catalog')
+    .select('*')
+    .order('display_name')
+
+  // Count how many facility trays are linked to each catalog entry
+  const { data: trayCounts } = await supabase
+    .from('instrument_trays')
+    .select('catalog_id')
+    .not('catalog_id', 'is', null)
+
+  const catalogUsageCounts: Record<string, number> = {}
+  trayCounts?.forEach((t) => {
+    if (t.catalog_id) {
+      catalogUsageCounts[t.catalog_id] = (catalogUsageCounts[t.catalog_id] || 0) + 1
+    }
+  })
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
     .single()
 
+  const userRole = profile?.role ?? 'viewer'
+
+  // Split catalog into trays and instruments
+  const trayCatalog = (instrumentCatalog ?? []).filter((c) => c.item_type === 'tray')
+  const instrumentCatalogItems = (instrumentCatalog ?? []).filter((c) => c.item_type === 'instrument')
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Product Groups</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Groupings</h1>
         <p className="text-gray-500 mt-1">
-          Manage display names and group references. Each group combines one or more reference numbers under a single display name for counting and par levels.
+          Manage mappings between your display names and RepSuite.
         </p>
       </div>
 
-      <ProductGroupsManager
-        productGroups={productGroups ?? []}
-        groupDetails={groupDetails}
-        allCatalogItems={catalogItems ?? []}
-        userRole={profile?.role ?? 'viewer'}
+      <GroupingsTabs
+        facilitiesContent={
+          <FacilityMappingManager
+            facilities={facilities ?? []}
+            repsuiteHospitals={repsuiteHospitals}
+            userRole={userRole}
+          />
+        }
+        surgeonsContent={
+          <SurgeonMappingManager
+            mappings={surgeonMappings ?? []}
+            repsuiteSurgeons={repsuiteSurgeons}
+            userRole={userRole}
+          />
+        }
+        kitsContent={
+          <KitMappingManager
+            mappings={kitMappings ?? []}
+            repsuiteKits={repsuiteKits}
+            userRole={userRole}
+          />
+        }
+        productsContent={
+          <ProductGroupsManager
+            productGroups={productGroups ?? []}
+            groupDetails={groupDetails}
+            allCatalogItems={catalogItems ?? []}
+            userRole={userRole}
+          />
+        }
+        traysContent={
+          <InstrumentCatalogManager
+            catalogItems={trayCatalog}
+            usageCounts={catalogUsageCounts}
+            userRole={userRole}
+            itemType="tray"
+          />
+        }
+        instrumentsContent={
+          <InstrumentCatalogManager
+            catalogItems={instrumentCatalogItems}
+            usageCounts={catalogUsageCounts}
+            userRole={userRole}
+            itemType="instrument"
+          />
+        }
+        facilityCount={facilities?.length ?? 0}
+        surgeonCount={repsuiteSurgeons.length}
+        kitCount={new Set([...(kitMappings ?? []).map(m => m.repsuite_name), ...repsuiteKits.map(k => k.kit_name)]).size}
+        productCount={productGroups?.length ?? 0}
+        trayCount={trayCatalog.length}
+        instrumentCount={instrumentCatalogItems.length}
       />
     </div>
   )

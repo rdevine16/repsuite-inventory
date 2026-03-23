@@ -7,7 +7,19 @@ export default async function CasesPage() {
   const { data: cases } = await supabase
     .from('cases')
     .select('*, facilities(name)')
+    .eq('status', 'Completed')
+    .gte('surgery_date', '2026-03-22T00:00:00')
     .order('surgery_date', { ascending: false })
+
+  // Get surgeon display name mappings
+  const { data: surgeonMappings } = await supabase
+    .from('surgeon_mappings')
+    .select('repsuite_name, display_name')
+
+  const surgeonNameMap: Record<string, string> = {}
+  surgeonMappings?.forEach((m: { repsuite_name: string; display_name: string }) => {
+    surgeonNameMap[m.repsuite_name] = m.display_name
+  })
 
   // Get usage counts per case
   const { data: usageCounts } = await supabase
@@ -102,14 +114,14 @@ export default async function CasesPage() {
                         }) : '—'}
                       </td>
                       <td className="py-3 px-4 text-gray-700">
-                        {c.surgeon_name?.replace(/^\d+ - /, '') ?? '—'}
+                        {surgeonNameMap[c.surgeon_name] ?? c.surgeon_name?.replace(/^\d+ - /, '') ?? '—'}
                       </td>
                       <td className="py-3 px-4">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
                           {c.procedure_name ?? '—'}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-gray-600 text-xs">{facility?.name ?? '—'}</td>
+                      <td className="py-3 px-4 text-gray-600 text-xs">{facility?.name ?? c.hospital_name?.replace(/^\d+ - /, '') ?? '—'}</td>
                       <td className="py-3 px-4 text-center">
                         {stats ? (
                           <span className="text-xs">

@@ -11,7 +11,10 @@ const navItems = [
   { href: '/par-levels', label: 'Par Levels' },
   { href: '/cases', label: 'Usage' },
   { href: '/instruments', label: 'Instruments' },
-  { href: '/products', label: 'Products' },
+  { href: '/surgeon-preferences', label: 'Preferences' },
+  { href: '/procedure-kits', label: 'Procedure Kits' },
+  { href: '/alert-thresholds', label: 'Alerts' },
+  { href: '/products', label: 'Groupings' },
 ]
 
 export default function Nav({ userEmail }: { userEmail: string }) {

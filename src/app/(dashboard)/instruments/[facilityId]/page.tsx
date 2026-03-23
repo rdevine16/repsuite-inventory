@@ -27,6 +27,12 @@ export default async function FacilityInstrumentsPage({
     .order('name')
     .order('set_id')
 
+  // Load instrument catalog for the add form dropdown
+  const { data: catalogItems } = await supabase
+    .from('instrument_catalog')
+    .select('id, display_name, repsuite_name, category, item_type, catalog_number, is_custom')
+    .order('display_name')
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -52,6 +58,7 @@ export default async function FacilityInstrumentsPage({
       <InstrumentTrays
         facilityId={facilityId}
         trays={trays ?? []}
+        catalogItems={catalogItems ?? []}
         canEdit={profile?.role === 'admin' || profile?.role === 'manager'}
       />
     </div>

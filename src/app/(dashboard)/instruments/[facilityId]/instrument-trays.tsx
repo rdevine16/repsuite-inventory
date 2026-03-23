@@ -10,6 +10,7 @@ interface Tray {
   name: string
   set_id: string | null
   catalog_number: string | null
+  catalog_id: string | null
   category: string
   tray_type: string
   item_type: string
@@ -17,6 +18,16 @@ interface Tray {
   status: string
   missing_items: string | null
   notes: string | null
+}
+
+interface CatalogItem {
+  id: string
+  display_name: string
+  repsuite_name: string | null
+  category: string
+  item_type: string
+  catalog_number: string | null
+  is_custom: boolean
 }
 
 const CATEGORIES = [
@@ -36,10 +47,12 @@ type SortField = 'name' | 'item_type' | 'status'
 export default function InstrumentTrays({
   facilityId,
   trays,
+  catalogItems,
   canEdit,
 }: {
   facilityId: string
   trays: Tray[]
+  catalogItems: CatalogItem[]
   canEdit: boolean
 }) {
   const [tab, setTab] = useState('knee')
@@ -170,6 +183,7 @@ export default function InstrumentTrays({
         <TrayForm
           facilityId={facilityId}
           tray={editingTray}
+          catalogItems={catalogItems}
           defaultCategory={tab}
           onClose={() => { setShowForm(false); setEditingTray(null) }}
           onSaved={() => { setShowForm(false); setEditingTray(null); router.refresh() }}
@@ -274,16 +288,23 @@ export default function InstrumentTrays({
 function TrayForm({
   facilityId,
   tray,
+  catalogItems,
   defaultCategory,
   onClose,
   onSaved,
 }: {
   facilityId: string
   tray: Tray | null
+  catalogItems: CatalogItem[]
   defaultCategory: string
   onClose: () => void
   onSaved: () => void
 }) {
+  const [mode, setMode] = useState<'catalog' | 'custom'>(tray ? (tray.catalog_id ? 'catalog' : 'custom') : 'catalog')
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [selectedCatalog, setSelectedCatalog] = useState<CatalogItem | null>(
+    tray?.catalog_id ? catalogItems.find((c) => c.id === tray.catalog_id) ?? null : null
+  )
   const [name, setName] = useState(tray?.name ?? '')
   const [setId, setSetId] = useState(tray?.set_id ?? '')
   const [catalogNumber, setCatalogNumber] = useState(tray?.catalog_number ?? '')
@@ -296,12 +317,48 @@ function TrayForm({
   const [notes, setNotes] = useState(tray?.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDropdown, setShowDropdown] = useState(false)
 
   const supabase = createClient()
 
+  // Filter catalog items by search and category
+  const filteredCatalog = useMemo(() => {
+    if (!catalogSearch && !showDropdown) return []
+    let result = catalogItems
+    if (catalogSearch) {
+      const q = catalogSearch.toLowerCase()
+      result = result.filter(
+        (c) =>
+          c.display_name.toLowerCase().includes(q) ||
+          c.catalog_number?.toLowerCase().includes(q) ||
+          c.repsuite_name?.toLowerCase().includes(q)
+      )
+    }
+    return result.slice(0, 20)
+  }, [catalogItems, catalogSearch, showDropdown])
+
+  const selectCatalogItem = (item: CatalogItem) => {
+    setSelectedCatalog(item)
+    setName(item.display_name)
+    setCatalogNumber(item.catalog_number ?? '')
+    setCategory(item.category)
+    setItemType(item.item_type)
+    setTrayType(item.is_custom ? 'custom' : 'standard')
+    setCatalogSearch('')
+    setShowDropdown(false)
+  }
+
+  const clearCatalogSelection = () => {
+    setSelectedCatalog(null)
+    setName('')
+    setCatalogNumber('')
+    setCatalogSearch('')
+  }
+
   const handleSave = async () => {
-    if (!name.trim()) {
-      setError('Name is required.')
+    const finalName = mode === 'catalog' ? (selectedCatalog?.display_name ?? '') : name.trim()
+    if (!finalName) {
+      setError(mode === 'catalog' ? 'Please select an item from the catalog.' : 'Name is required.')
       return
     }
     setSaving(true)
@@ -309,9 +366,10 @@ function TrayForm({
 
     const payload = {
       facility_id: facilityId,
-      name: name.trim(),
+      name: finalName,
       set_id: setId.trim() || null,
       catalog_number: catalogNumber.trim() || null,
+      catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
       category,
       item_type: itemType,
       tray_type: trayType,
@@ -347,17 +405,115 @@ function TrayForm({
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
       )}
 
+      {/* Mode toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => { setMode('catalog'); clearCatalogSelection() }}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+            mode === 'catalog'
+              ? 'bg-blue-100 text-blue-700'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          From Catalog
+        </button>
+        <button
+          onClick={() => setMode('custom')}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+            mode === 'custom'
+              ? 'bg-blue-100 text-blue-700'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Custom Entry
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Insignia Broach Tray"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
+        {mode === 'catalog' ? (
+          <div className="sm:col-span-2 relative">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select from Catalog</label>
+            {selectedCatalog ? (
+              <div className="flex items-center justify-between p-2.5 bg-blue-50 rounded-lg border border-blue-200">
+                <div>
+                  <span className="font-medium text-gray-900">{selectedCatalog.display_name}</span>
+                  <span className="text-xs text-gray-500 ml-2 capitalize">{selectedCatalog.category}</span>
+                  {selectedCatalog.catalog_number && (
+                    <span className="text-xs font-mono text-gray-500 ml-2">{selectedCatalog.catalog_number}</span>
+                  )}
+                </div>
+                <button
+                  onClick={clearCatalogSelection}
+                  className="text-gray-400 hover:text-gray-600 p-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={catalogSearch}
+                  onChange={(e) => { setCatalogSearch(e.target.value); setShowDropdown(true) }}
+                  onFocus={() => setShowDropdown(true)}
+                  placeholder="Search trays, instruments..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+                {showDropdown && filteredCatalog.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-lg">
+                    {filteredCatalog.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => selectCatalogItem(item)}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-50 last:border-0"
+                      >
+                        <span className="font-medium text-gray-900">{item.display_name}</span>
+                        <span className="text-xs text-gray-400 ml-2 capitalize">{item.category}</span>
+                        {item.catalog_number && (
+                          <span className="text-xs font-mono text-gray-400 ml-2">{item.catalog_number}</span>
+                        )}
+                        {item.is_custom && (
+                          <span className="text-xs text-gray-400 ml-1">(custom)</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showDropdown && catalogSearch && filteredCatalog.length === 0 && (
+                  <div className="absolute z-10 mt-1 w-full border border-gray-200 rounded-lg bg-white shadow-lg p-3 text-sm text-gray-400">
+                    No matching items. Try &ldquo;Custom Entry&rdquo; to add a new one.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., Insignia Broach Tray"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Item Type</label>
+              <select
+                value={itemType}
+                onChange={(e) => setItemType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                <option value="tray">Tray</option>
+                <option value="instrument">Instrument</option>
+              </select>
+            </div>
+          </>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Set ID</label>
           <input
@@ -368,50 +524,43 @@ function TrayForm({
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Ref #</label>
-          <input
-            type="text"
-            value={catalogNumber}
-            onChange={(e) => setCatalogNumber(e.target.value)}
-            placeholder="e.g., 393035"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Item Type</label>
-          <select
-            value={itemType}
-            onChange={(e) => setItemType(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-          >
-            <option value="tray">Tray</option>
-            <option value="instrument">Instrument</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-          >
-            <option value="knee">Knee</option>
-            <option value="hip">Hip</option>
-            <option value="general">General</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Configuration</label>
-          <select
-            value={trayType}
-            onChange={(e) => setTrayType(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-          >
-            <option value="standard">Standard</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
+        {mode === 'custom' && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ref #</label>
+              <input
+                type="text"
+                value={catalogNumber}
+                onChange={(e) => setCatalogNumber(e.target.value)}
+                placeholder="e.g., 393035"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                <option value="knee">Knee</option>
+                <option value="hip">Hip</option>
+                <option value="general">General</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Configuration</label>
+              <select
+                value={trayType}
+                onChange={(e) => setTrayType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                <option value="standard">Standard</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          </>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
           <input
