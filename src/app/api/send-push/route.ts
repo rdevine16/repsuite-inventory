@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       : 'https://api.sandbox.push.apple.com'
 
     let sent = 0
+    const errors: string[] = []
     for (const { device_token } of tokens) {
       try {
         const res = await fetch(`${apnsHost}/3/device/${device_token}`, {
@@ -86,14 +87,14 @@ export async function POST(request: Request) {
           sent++
         } else {
           const errBody = await res.text()
-          console.error(`APNs error ${res.status}: ${errBody}`)
+          errors.push(`${res.status}: ${errBody}`)
         }
       } catch (pushErr) {
-        console.error('Push send error:', pushErr)
+        errors.push(`send error: ${pushErr}`)
       }
     }
 
-    return NextResponse.json({ sent, total: tokens.length, apnsHost })
+    return NextResponse.json({ sent, total: tokens.length, apnsHost, errors })
   } catch (err) {
     console.error('Push error:', err)
     return NextResponse.json(
