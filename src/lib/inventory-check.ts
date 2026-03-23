@@ -302,6 +302,17 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     }
   }
 
+  // Get previous alerts to detect changes
+  const { data: previousAlerts } = await supabase.from('inventory_alerts').select('component, variant, missing_sizes')
+  const previousAlertKeys = new Set(
+    (previousAlerts ?? []).map((a) => `${a.component}|${a.variant}|${(a.missing_sizes as string[]).sort().join(',')}`)
+  )
+  const currentAlertKeys = new Set(
+    alerts.map((a) => `${a.component}|${a.variant}|${a.missing_sizes.sort().join(',')}`)
+  )
+  const alertsChanged = currentAlertKeys.size !== previousAlertKeys.size ||
+    [...currentAlertKeys].some((k) => !previousAlertKeys.has(k))
+
   // Clear old alerts and insert new ones
   await supabase.from('inventory_alerts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
   for (const alert of alerts) {
@@ -337,8 +348,8 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     })
   }
 
-  // Send push notification if there are new alerts
-  if (alerts.length > 0) {
+  // Send push notification only if alerts changed since last check
+  if (alerts.length > 0 && alertsChanged) {
     const alertSummary = alerts.map((a) => {
       const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
       const side = sideMatch ? sideMatch[1] : ''
