@@ -550,18 +550,24 @@ async function syncCases() {
         .update({ notified_at: new Date().toISOString() })
         .in('id', itemIds)
 
-      // Send push notification
+      // Save notification and send push
       const summaries = Array.from(byCaseId.values()).map((c) => `${c.caseId}: ${c.count} items`)
+      const missingTitle = 'Missing Inventory Source'
+      const missingBody = summaries.slice(0, 3).join(' • ')
+
+      await supabase.from('notifications').insert({
+        title: missingTitle,
+        body: missingBody,
+        type: 'missing_source',
+        data: { cases: Array.from(byCaseId.values()) },
+      })
+
       const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
       try {
         await fetch(`${baseUrl}/api/send-push`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: 'Missing Inventory Source',
-            body: summaries.slice(0, 3).join(' • '),
-            data: { type: 'missing_source' },
-          }),
+          body: JSON.stringify({ title: missingTitle, body: missingBody, data: { type: 'missing_source' } }),
         })
         sourceNotifications = missingSourceItems.length
       } catch { /* push is non-critical */ }
@@ -594,17 +600,22 @@ async function syncCases() {
           .update({ source_conflict: true })
           .in('id', conflictIds)
 
-        // Send conflict push notification
+        // Save notification and send push
+        const conflictTitle = 'Source Conflict Detected'
+        const conflictBody = `${conflictIds.length} items on ${conflictCaseDbIds.size} case(s) have conflicting sources`
+
+        await supabase.from('notifications').insert({
+          title: conflictTitle,
+          body: conflictBody,
+          type: 'source_conflict',
+        })
+
         const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
         try {
           await fetch(`${baseUrl}/api/send-push`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              title: 'Source Conflict Detected',
-              body: `${conflictIds.length} items on ${conflictCaseDbIds.size} case(s) have conflicting sources`,
-              data: { type: 'source_conflict' },
-            }),
+            body: JSON.stringify({ title: conflictTitle, body: conflictBody, data: { type: 'source_conflict' } }),
           })
         } catch { /* push is non-critical */ }
       }

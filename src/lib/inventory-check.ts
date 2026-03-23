@@ -344,17 +344,52 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
       const variantId = sideMatch ? sideMatch[2] : a.variant
       const names: Record<string, string> = {
         cr_pressfit: 'CR PF Femur', cr_cemented: 'CR Cem Femur',
-        ps_cemented: 'PS Femur', tritanium: 'Tritanium Tibia',
-        cs: 'CS Poly', ps: 'PS Poly',
+        ps_cemented: 'PS Femur', ps_pro_cemented: 'PS Pro Femur',
+        tritanium: 'Tritanium Tibia', primary: 'Primary Tibia',
+        universal: 'Universal Tibia', mis: 'MIS Tibia',
+        cs: 'CS Poly', ps: 'PS Poly', ts: 'TS Poly',
+        asym_cemented: 'Asym Patella', sym_cemented: 'Sym Patella',
+        asym_pressfit: 'Asym PF Patella',
       }
-      return `${side}${names[variantId] ?? variantId} sz ${a.missing_sizes.join(',')}`
+
+      // Format missing sizes — poly uses size×thickness format
+      const isPoly = a.component === 'knee_poly'
+      let sizeSummary: string
+      if (isPoly) {
+        // Group by size: "sz 3 (9,10,11mm), sz 4 (9mm)"
+        const bySize = new Map<string, string[]>()
+        for (const key of a.missing_sizes) {
+          const [sz, thick] = key.split('×')
+          if (!bySize.has(sz)) bySize.set(sz, [])
+          bySize.get(sz)!.push(thick + 'mm')
+        }
+        const parts = Array.from(bySize.entries()).map(([sz, thicknesses]) =>
+          `sz${sz}(${thicknesses.join(',')})`
+        )
+        sizeSummary = parts.slice(0, 3).join(' ')
+        if (parts.length > 3) sizeSummary += ` +${parts.length - 3} more`
+      } else {
+        sizeSummary = `sz ${a.missing_sizes.join(',')}`
+      }
+
+      return `${side}${names[variantId] ?? variantId} ${sizeSummary}`
     })
 
-    // Get device tokens and send push
+    const pushTitle = `${alerts.length} Inventory Alert${alerts.length === 1 ? '' : 's'}`
+    const pushBody = alertSummary.slice(0, 3).join(' • ')
+
+    // Save to notifications table
+    await supabase.from('notifications').insert({
+      title: pushTitle,
+      body: pushBody,
+      type: 'inventory_alert',
+      data: { alerts: alerts.map((a) => ({ component: a.component, variant: a.variant, missing_sizes: a.missing_sizes })) },
+    })
+
+    // Send push notification
     const { data: tokens } = await supabase.from('device_tokens').select('device_token')
     if (tokens && tokens.length > 0) {
       try {
-        // Use the send-push API route
         const baseUrl = process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
           : 'http://localhost:3000'
@@ -362,8 +397,8 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: `${alerts.length} Inventory Alert${alerts.length === 1 ? '' : 's'}`,
-            body: alertSummary.slice(0, 3).join(' • '),
+            title: pushTitle,
+            body: pushBody,
             data: { type: 'inventory_alert' },
           }),
         })
