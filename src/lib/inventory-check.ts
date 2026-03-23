@@ -113,28 +113,26 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   const facilityIds = facilities.map((f) => f.id)
   const facilityMap = Object.fromEntries(facilities.map((f) => [f.id, f.name]))
 
-  // Get tomorrow's cases (Eastern timezone)
+  // Get today's and tomorrow's cases (Eastern timezone)
   const eastern = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
   const nowET = eastern.format(new Date())
   const [emm, edd, eyyyy] = nowET.split('/')
   const todayDate = new Date(`${eyyyy}-${emm}-${edd}T00:00:00-04:00`)
-  const tomorrow = new Date(todayDate)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const dayAfter = new Date(tomorrow)
-  dayAfter.setDate(dayAfter.getDate() + 1)
+  const dayAfterTomorrow = new Date(todayDate)
+  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2)
 
-  const { data: tomorrowCases } = await supabase
+  const { data: upcomingCases } = await supabase
     .from('cases')
     .select('id, case_id, facility_id, surgeon_name, surgery_date, procedure_name')
     .in('facility_id', facilityIds)
-    .gte('surgery_date', tomorrow.toISOString())
-    .lt('surgery_date', dayAfter.toISOString())
+    .gte('surgery_date', todayDate.toISOString())
+    .lt('surgery_date', dayAfterTomorrow.toISOString())
     .neq('status', 'Completed')
 
-  if (!tomorrowCases || tomorrowCases.length === 0) return 0
+  if (!upcomingCases || upcomingCases.length === 0) return 0
 
   // Get surgeon preferences
-  const surgeonNames = [...new Set(tomorrowCases.map((c) => c.surgeon_name).filter(Boolean))]
+  const surgeonNames = [...new Set(upcomingCases.map((c) => c.surgeon_name).filter(Boolean))]
   const { data: preferences } = await supabase
     .from('surgeon_preferences')
     .select('*')
@@ -156,7 +154,7 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   const alerts: Alert[] = []
 
   for (const facilityId of facilityIds) {
-    const facilityCases = tomorrowCases.filter((c) => c.facility_id === facilityId)
+    const facilityCases = upcomingCases.filter((c) => c.facility_id === facilityId)
     if (facilityCases.length === 0) continue
 
     const { data: inventoryItems } = await supabase
