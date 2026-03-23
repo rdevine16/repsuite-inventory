@@ -3,6 +3,10 @@
     {
       "path": "/api/sync-cases",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/morning-digest",
+      "schedule": "0 10 * * *"
     }
   ]
 }

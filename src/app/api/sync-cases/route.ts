@@ -176,6 +176,38 @@ async function syncCases() {
     if (!upsertError) synced++
   }
 
+  // Create notifications for important status changes
+  for (const c of uniqueCases) {
+    const oldStatus = existingStatusMap[c.sfId]
+    if (!oldStatus || oldStatus === c.status) continue
+
+    const isShipped = c.status === 'Shipped/Ready for Surgery' && oldStatus !== 'Shipped/Ready for Surgery'
+    const isCompleted = c.status === 'Completed' && oldStatus !== 'Completed'
+
+    if (isShipped || isCompleted) {
+      const surgeonName = c.surgeonName?.replace(/^\d+\s*-\s*/, '') ?? 'Unknown'
+      const facilityName = c.hospitalName?.replace(/^\d+\s*-\s*/, '') ?? ''
+      const siteNumber = c.hospitalName?.match(/^(\d+)\s*-/)?.[1]
+      const facilityId = siteNumber ? facilityBySiteNumber[siteNumber] ?? null : null
+
+      const title = isShipped
+        ? `Kit Shipped: ${c.caseId}`
+        : `Case Completed: ${c.caseId}`
+      const body = `${surgeonName}${facilityName ? ' at ' + facilityName : ''}`
+
+      await supabase.from('notifications').insert({
+        title,
+        body,
+        type: 'case_update',
+        priority: 'info',
+        action_type: 'view_case',
+        action_id: c.sfId,
+        facility_id: facilityId,
+        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+      })
+    }
+  }
+
   // Backfill facility_id on any cases that match a mapped facility
   const { data: mappedFacilities } = await supabase
     .from('facilities')
@@ -559,6 +591,9 @@ async function syncCases() {
         title: missingTitle,
         body: missingBody,
         type: 'missing_source',
+        priority: 'warning',
+        action_type: 'set_source',
+        expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
         data: { cases: Array.from(byCaseId.values()) },
       })
 
@@ -608,6 +643,9 @@ async function syncCases() {
           title: conflictTitle,
           body: conflictBody,
           type: 'source_conflict',
+          priority: 'warning',
+          action_type: 'resolve_conflict',
+          expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
         })
 
         const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'

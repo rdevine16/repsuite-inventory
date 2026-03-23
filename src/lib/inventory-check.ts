@@ -357,77 +357,174 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     })
   }
 
-  // Send push notification only if alerts changed since last check
+  // Determine priority per alert: critical if case within 24hrs, warning if 2+ days
+  const componentNames: Record<string, string> = {
+    cr_pressfit: 'CR PF Femur', cr_cemented: 'CR Cem Femur',
+    ps_cemented: 'PS Femur', ps_pro_cemented: 'PS Pro Femur',
+    ps_pressfit: 'PS PF Femur', tritanium: 'Tritanium Tibia',
+    primary: 'Primary Tibia', universal: 'Universal Tibia', mis: 'MIS Tibia',
+    cs: 'CS Poly', ps: 'PS Poly', ts: 'TS Poly',
+    asym_cemented: 'Asym Patella', sym_cemented: 'Sym Patella',
+    asym_pressfit: 'Asym PF Patella',
+  }
+
+  function formatAlertSummary(a: Alert): string {
+    const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
+    const side = sideMatch ? sideMatch[1] : ''
+    const variantId = sideMatch ? sideMatch[2] : a.variant
+    const isPoly = a.component === 'knee_poly'
+    let sizeSummary: string
+    if (isPoly) {
+      const bySize = new Map<string, string[]>()
+      for (const key of a.missing_sizes) {
+        const [sz, thick] = key.split('×')
+        if (!bySize.has(sz)) bySize.set(sz, [])
+        bySize.get(sz)!.push(thick + 'mm')
+      }
+      const parts = Array.from(bySize.entries()).map(([sz, thicknesses]) =>
+        `sz${sz}(${thicknesses.join(',')})`
+      )
+      sizeSummary = parts.slice(0, 3).join(' ')
+      if (parts.length > 3) sizeSummary += ` +${parts.length - 3} more`
+    } else {
+      sizeSummary = `sz ${a.missing_sizes.join(',')}`
+    }
+    return `${side}${componentNames[variantId] ?? variantId} ${sizeSummary}`
+  }
+
+  // Check for active replenishments to downgrade alerts
+  const { data: activeReplenishments } = await supabase
+    .from('replenishment_requests')
+    .select('component, variant')
+    .in('status', ['proposed', 'approved', 'in_transit'])
+
+  const replenishmentSet = new Set(
+    (activeReplenishments ?? []).map((r) => `${r.component}|${r.variant}`)
+  )
+
+  // Get quiet hours preferences
+  const { data: prefs } = await supabase
+    .from('notification_preferences')
+    .select('quiet_hours_start, quiet_hours_end, quiet_hours_tz, push_critical, push_warning, push_info')
+    .limit(1)
+    .maybeSingle()
+
+  const isQuietHours = (() => {
+    if (!prefs) return false
+    const tz = prefs.quiet_hours_tz || 'America/New_York'
+    const now = new Date()
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
+    const nowTime = formatter.format(now)
+    const start = prefs.quiet_hours_start || '22:00'
+    const end = prefs.quiet_hours_end || '06:00'
+    // Handle overnight range (22:00 - 06:00)
+    if (start > end) return nowTime >= start || nowTime < end
+    return nowTime >= start && nowTime < end
+  })()
+
+  // Send notifications only if alerts changed
   if (dedupedAlerts.length > 0 && alertsChanged) {
-    const alertSummary = dedupedAlerts.map((a) => {
-      const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
-      const side = sideMatch ? sideMatch[1] : ''
-      const variantId = sideMatch ? sideMatch[2] : a.variant
-      const names: Record<string, string> = {
-        cr_pressfit: 'CR PF Femur', cr_cemented: 'CR Cem Femur',
-        ps_cemented: 'PS Femur', ps_pro_cemented: 'PS Pro Femur',
-        tritanium: 'Tritanium Tibia', primary: 'Primary Tibia',
-        universal: 'Universal Tibia', mis: 'MIS Tibia',
-        cs: 'CS Poly', ps: 'PS Poly', ts: 'TS Poly',
-        asym_cemented: 'Asym Patella', sym_cemented: 'Sym Patella',
-        asym_pressfit: 'Asym PF Patella',
-      }
+    const now = new Date()
 
-      // Format missing sizes — poly uses size×thickness format
-      const isPoly = a.component === 'knee_poly'
-      let sizeSummary: string
-      if (isPoly) {
-        // Group by size: "sz 3 (9,10,11mm), sz 4 (9mm)"
-        const bySize = new Map<string, string[]>()
-        for (const key of a.missing_sizes) {
-          const [sz, thick] = key.split('×')
-          if (!bySize.has(sz)) bySize.set(sz, [])
-          bySize.get(sz)!.push(thick + 'mm')
-        }
-        const parts = Array.from(bySize.entries()).map(([sz, thicknesses]) =>
-          `sz${sz}(${thicknesses.join(',')})`
-        )
-        sizeSummary = parts.slice(0, 3).join(' ')
-        if (parts.length > 3) sizeSummary += ` +${parts.length - 3} more`
+    for (const alert of dedupedAlerts) {
+      const surgeryDate = alert.surgery_date ? new Date(alert.surgery_date) : null
+      const hoursUntilSurgery = surgeryDate ? (surgeryDate.getTime() - now.getTime()) / 3600000 : 999
+      const hasReplenishment = replenishmentSet.has(`${alert.component}|${alert.variant}`)
+
+      let priority: 'critical' | 'warning' | 'info'
+      if (hasReplenishment) {
+        priority = 'info' // Replenishment in progress, downgrade
+      } else if (hoursUntilSurgery <= 24) {
+        priority = 'critical'
       } else {
-        sizeSummary = `sz ${a.missing_sizes.join(',')}`
+        priority = 'warning'
       }
 
-      return `${side}${names[variantId] ?? variantId} ${sizeSummary}`
-    })
+      const summary = formatAlertSummary(alert)
+      const title = priority === 'critical'
+        ? `CRITICAL: ${summary}`
+        : summary
 
-    const pushTitle = `${dedupedAlerts.length} Inventory Alert${dedupedAlerts.length === 1 ? '' : 's'}`
-    const pushBody = alertSummary.slice(0, 3).join(' • ')
+      // Duplicate suppression: check if identical unread notification exists in last 4 hours
+      const fourHoursAgo = new Date(now.getTime() - 4 * 3600000).toISOString()
+      const { count: existingCount } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('type', 'inventory_alert')
+        .eq('action_id', `${alert.component}|${alert.variant}`)
+        .eq('read', false)
+        .gte('created_at', fourHoursAgo)
 
-    // Save to notifications table
-    await supabase.from('notifications').insert({
-      title: pushTitle,
-      body: pushBody,
-      type: 'inventory_alert',
-      data: { alerts: alerts.map((a) => ({ component: a.component, variant: a.variant, missing_sizes: a.missing_sizes })) },
-    })
+      if ((existingCount ?? 0) > 0) continue // Skip duplicate
 
-    // Send push notification
-    const { data: tokens } = await supabase.from('device_tokens').select('device_token')
-    if (tokens && tokens.length > 0) {
+      // Save notification
+      await supabase.from('notifications').insert({
+        title,
+        body: `${alert.missing_sizes.length} sizes below threshold at ${alert.facility_name}`,
+        type: 'inventory_alert',
+        priority,
+        action_type: 'view_alert',
+        action_id: `${alert.component}|${alert.variant}`,
+        facility_id: alert.facility_id,
+        expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(), // 7 day expiry
+        data: { component: alert.component, variant: alert.variant, missing_sizes: alert.missing_sizes, on_hand: alert.on_hand, threshold: alert.threshold },
+      })
+
+      // Send push (respecting quiet hours and preference)
+      const shouldPush = !isQuietHours && (
+        (priority === 'critical' && (prefs?.push_critical !== false)) ||
+        (priority === 'warning' && (prefs?.push_warning !== false)) ||
+        (priority === 'info' && prefs?.push_info === true)
+      )
+
+      if (shouldPush) {
+        try {
+          const baseUrl = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : 'http://localhost:3000'
+          await fetch(`${baseUrl}/api/send-push`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title,
+              body: `${alert.missing_sizes.length} sizes below threshold at ${alert.facility_name}`,
+              data: { type: 'inventory_alert', action_type: 'view_alert', action_id: `${alert.component}|${alert.variant}` },
+            }),
+          })
+        } catch { /* push is non-critical */ }
+      }
+    }
+  }
+
+  // Escalation: re-notify for critical alerts unacknowledged for 4+ hours
+  try {
+    const fourHoursAgo = new Date(Date.now() - 4 * 3600000).toISOString()
+    const { data: unacked } = await supabase
+      .from('notifications')
+      .select('id, title, body')
+      .eq('priority', 'critical')
+      .eq('read', false)
+      .is('acknowledged_at', null)
+      .lt('created_at', fourHoursAgo)
+      .limit(5)
+
+    if (unacked && unacked.length > 0 && !isQuietHours) {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : 'http://localhost:3000'
       try {
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : 'http://localhost:3000'
         await fetch(`${baseUrl}/api/send-push`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: pushTitle,
-            body: pushBody,
-            data: { type: 'inventory_alert' },
+            title: `[URGENT] ${unacked.length} unresolved critical alert${unacked.length === 1 ? '' : 's'}`,
+            body: unacked.map((n) => n.title).slice(0, 2).join(' • '),
+            data: { type: 'escalation' },
           }),
         })
-      } catch {
-        // Push is non-critical
-      }
+      } catch { /* non-critical */ }
     }
-  }
+  } catch { /* escalation is non-critical */ }
 
   return dedupedAlerts.length
 }
