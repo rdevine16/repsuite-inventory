@@ -257,28 +257,40 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
         const onHandForComponent: Record<string, number> = {}
         const thresholdForComponent: Record<string, number> = {}
 
-        for (const size of config.sizes) {
-          let onHand = 0
-
-          if (config.isPolyStyle && config.polyThicknesses) {
-            for (const thickness of config.polyThicknesses) {
-              onHand += onHandCounts[`${config.category}|${size}|${thickness}`] ?? 0
+        if (config.isPolyStyle && config.polyThicknesses) {
+          // Poly: check each thickness across all knee sizes
+          for (const thickness of config.polyThicknesses) {
+            let onHand = 0
+            for (const kneeSize of config.sizes) {
+              onHand += onHandCounts[`${config.category}|${kneeSize}|${thickness}`] ?? 0
             }
-          } else {
+
+            let threshold = thresholdMap[`${component}|${primaryVariant}|${thickness}`] ?? 0
+            if (threshold === 0) threshold = 1
+
+            onHandForComponent[thickness] = onHand
+            thresholdForComponent[thickness] = threshold
+
+            if (onHand < threshold) {
+              missingSizes.push(thickness)
+            }
+          }
+        } else {
+          for (const size of config.sizes) {
+            let onHand = 0
             for (const gv of gridVariants) {
               onHand += onHandCounts[`${config.category}|${gv}|${size}`] ?? 0
             }
-          }
 
-          // Check threshold at preference level
-          let threshold = thresholdMap[`${component}|${primaryVariant}|${size}`] ?? 0
-          if (threshold === 0) threshold = 1 // default: alert when zero
+            let threshold = thresholdMap[`${component}|${primaryVariant}|${size}`] ?? 0
+            if (threshold === 0) threshold = 1
 
-          onHandForComponent[size] = onHand
-          thresholdForComponent[size] = threshold
+            onHandForComponent[size] = onHand
+            thresholdForComponent[size] = threshold
 
-          if (onHand < threshold) {
-            missingSizes.push(size)
+            if (onHand < threshold) {
+              missingSizes.push(size)
+            }
           }
         }
 
