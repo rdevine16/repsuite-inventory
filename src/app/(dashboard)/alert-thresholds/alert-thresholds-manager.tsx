@@ -226,6 +226,72 @@ function ThresholdGrid({
       </div>
 
       {components.map((comp) => {
+        const isPoly = comp.id === 'knee_poly'
+
+        if (isPoly) {
+          // Poly: render one 2D grid per variant (rows = knee sizes 1-8, columns = thicknesses)
+          const kneeSizes = ['1', '2', '3', '4', '5', '6', '7', '8']
+          return comp.variants.map((v) => {
+            const thicknesses = VARIANT_SIZES[comp.id]?.[v.id] ?? COMPONENT_SIZES[comp.id] ?? []
+            return (
+              <div key={`${comp.id}-${v.id}`} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-900">{comp.label} — {v.label}</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Rows = knee size, Columns = thickness</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left py-2 px-3 text-gray-500 font-medium sticky left-0 bg-white">Size</th>
+                        {thicknesses.map((t) => (
+                          <th key={t} className="text-center py-2 px-2 text-gray-500 font-medium min-w-[40px]">{t}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kneeSizes.map((sz) => (
+                        <tr key={sz} className="border-b border-gray-50">
+                          <td className="py-2 px-3 text-gray-700 font-medium sticky left-0 bg-white">{sz}</td>
+                          {thicknesses.map((t) => {
+                            const sizeKey = `${sz}×${t}`
+                            const key = `${comp.id}|${v.id}|${sizeKey}`
+                            const current = thresholdMap[key] ?? 1
+                            return (
+                              <td key={t} className="py-1 px-1 text-center">
+                                {canEdit ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={9}
+                                    value={current}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value)
+                                      if (!isNaN(val) && val >= 0) onSet(comp.id, v.id, sizeKey, val)
+                                    }}
+                                    className={`w-8 h-7 text-center text-xs border rounded ${
+                                      current >= 2 ? 'border-blue-300 bg-blue-50 text-blue-700 font-bold' : 'border-gray-200 text-gray-600'
+                                    } focus:ring-1 focus:ring-blue-500 outline-none`}
+                                  />
+                                ) : (
+                                  <span className={`${current >= 2 ? 'text-blue-700 font-bold' : 'text-gray-400'}`}>
+                                    {current}
+                                  </span>
+                                )}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })
+        }
+
+        // Non-poly: standard grid
         const sizes = COMPONENT_SIZES[comp.id] ?? []
         if (sizes.length === 0) return null
 
@@ -251,7 +317,6 @@ function ThresholdGrid({
                       <tr key={v.id} className="border-b border-gray-50">
                         <td className="py-2 px-3 text-gray-700 font-medium sticky left-0 bg-white whitespace-nowrap">{v.label}</td>
                         {sizes.map((size) => {
-                          // If variant has specific sizes, skip non-applicable ones
                           if (variantSizes && !variantSizes.includes(size)) {
                             return <td key={size} className="py-1 px-1 text-center bg-gray-50" />
                           }

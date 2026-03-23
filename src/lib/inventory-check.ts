@@ -247,21 +247,21 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
         const thresholdForComponent: Record<string, number> = {}
 
         if (config.isPolyStyle && config.polyThicknesses) {
-          // Poly: check each thickness across all knee sizes
-          for (const thickness of config.polyThicknesses) {
-            let onHand = 0
-            for (const kneeSize of config.sizes) {
-              onHand += onHandCounts[`${config.category}|${kneeSize}|${thickness}`] ?? 0
-            }
+          // Poly: check each size × thickness combo individually
+          for (const kneeSize of config.sizes) {
+            for (const thickness of config.polyThicknesses) {
+              const onHand = onHandCounts[`${config.category}|${kneeSize}|${thickness}`] ?? 0
+              const key = `${kneeSize}×${thickness}`
 
-            let threshold = thresholdMap[`${component}|${primaryVariant}|${thickness}`] ?? 0
-            if (threshold === 0) threshold = 1
+              let threshold = thresholdMap[`${component}|${primaryVariant}|${key}`] ?? 0
+              if (threshold === 0) threshold = 1
 
-            onHandForComponent[thickness] = onHand
-            thresholdForComponent[thickness] = threshold
+              onHandForComponent[key] = onHand
+              thresholdForComponent[key] = threshold
 
-            if (onHand < threshold) {
-              missingSizes.push(thickness)
+              if (onHand < threshold) {
+                missingSizes.push(key)
+              }
             }
           }
         } else {
