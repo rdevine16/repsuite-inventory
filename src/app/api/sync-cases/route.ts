@@ -127,6 +127,7 @@ async function syncCases() {
   // Upsert cases and track which are new or changed
   const changedCaseSfIds: string[] = []
   const newlyCompletedSfIds: string[] = []
+  const newKitIssues: { caseSfId: string; kitName: string; missingCount: number }[] = []
   let synced = 0
   for (const c of uniqueCases) {
     const siteNumber = extractSiteNumber(c.hospitalName)
@@ -251,8 +252,76 @@ async function syncCases() {
         }
         detailsSynced++
       }
+      // Sync kit issues (missing parts) and send push if new
+      const setsArr = detail.sets as Array<Record<string, unknown>> | undefined
+      const partsArr2 = detail.parts as Array<Record<string, unknown>> | undefined
+      if (setsArr && partsArr2) {
+        for (const set of setsArr) {
+          const setId = (set.id ?? '') as string
+          const kitName = (set.requested_set_name ?? set.set_name ?? set.templateName ?? '') as string
+          const kitNo = (set.kitNo ?? '') as string
+          const setParts = partsArr2.filter((p) => (p.set_id as string) === setId)
+          const missingParts = setParts.filter((p) => {
+            const mq = typeof p.missingqty === 'number' ? p.missingqty : 0
+            return mq > 0
+          })
+
+          if (missingParts.length > 0) {
+            const missingData = missingParts.map((p) => ({
+              catalog_number: (p.catalog_number ?? '') as string,
+              part_name: (p.part_name ?? p.part_desc ?? 'Unknown') as string,
+              missing_qty: typeof p.missingqty === 'number' ? p.missingqty : 1,
+            }))
+
+            await supabase.from('case_kit_issues').upsert({
+              case_sf_id: caseRow.sf_id,
+              kit_name: kitName,
+              kit_no: kitNo,
+              missing_parts: JSON.stringify(missingData),
+              total_parts: setParts.length,
+              missing_count: missingParts.length,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'case_sf_id,kit_no' })
+
+            newKitIssues.push({ caseSfId: caseRow.sf_id, kitName, missingCount: missingParts.length })
+          } else if (kitNo) {
+            // Clear resolved issues
+            await supabase.from('case_kit_issues')
+              .delete()
+              .eq('case_sf_id', caseRow.sf_id)
+              .eq('kit_no', kitNo)
+          }
+        }
+      }
     } catch (detailErr) {
       console.error(`Error syncing details for ${caseRow.sf_id}:`, detailErr)
+    }
+  }
+
+  // Send push notification for new kit issues
+  if (newKitIssues.length > 0) {
+    try {
+      const { data: tokens } = await supabase.from('device_tokens').select('device_token')
+      if (tokens && tokens.length > 0) {
+        const summary = newKitIssues.slice(0, 3).map((i) =>
+          `${i.kitName}: ${i.missingCount} missing`
+        ).join(' • ')
+
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : 'http://localhost:3000'
+        await fetch(`${baseUrl}/api/send-push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: `${newKitIssues.length} Kit${newKitIssues.length === 1 ? '' : 's'} with Missing Parts`,
+            body: summary,
+            data: { type: 'kit_issue', case_sf_id: newKitIssues[0].caseSfId },
+          }),
+        })
+      }
+    } catch {
+      // Push is non-critical
     }
   }
 
