@@ -248,8 +248,9 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
 
         if (config.isPolyStyle && config.polyThicknesses) {
           // Poly: check each size × thickness combo individually
+          const polyThicknesses: string[] = config.polyThicknesses
           for (const kneeSize of config.sizes) {
-            for (const thickness of config.polyThicknesses) {
+            for (const thickness of polyThicknesses) {
               const onHand = onHandCounts[`${config.category}|${kneeSize}|${thickness}`] ?? 0
               const key = `${kneeSize}×${thickness}`
 
