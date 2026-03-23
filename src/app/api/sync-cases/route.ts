@@ -408,11 +408,9 @@ async function syncCases() {
 
           if (usageError || !usageItem) continue
 
-          // Auto-deduct only if source is from this facility
-          const isFromFacility = sourceLocation && caseRow.hospital_site_number &&
-            sourceLocation === caseRow.hospital_site_number
-
-          if (!isFromFacility || !caseRow.facility_id) continue
+          // Auto-deduct if the case is at a tracked facility and the item has a source location
+          // (items without source_location are instruments/disposables, not implants)
+          if (!sourceLocation || !caseRow.facility_id) continue
 
           // Find matching facility_inventory item (match by ref# and lot if available)
           let matchQuery = supabase
