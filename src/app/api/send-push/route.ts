@@ -19,9 +19,8 @@ function generateAPNsToken(): string | null {
 
   if (!keyId || !teamId || !privateKey) return null
 
-  const formattedKey = privateKey.includes('\\n')
-    ? privateKey.replace(/\\n/g, '\n')
-    : privateKey
+  // Replace literal \n with actual newlines (Vercel stores env vars with literal \n)
+  const formattedKey = privateKey.split('\\n').join('\n')
   const token = jwt.sign({}, formattedKey, {
     algorithm: 'ES256',
     header: {
