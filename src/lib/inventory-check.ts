@@ -368,28 +368,65 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     asym_pressfit: 'Asym PF Patella',
   }
 
-  function formatAlertSummary(a: Alert): string {
+  function formatAlertTitle(a: Alert): string {
     const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
-    const side = sideMatch ? sideMatch[1] : ''
     const variantId = sideMatch ? sideMatch[2] : a.variant
+    const name = componentNames[variantId] ?? variantId
+    return `Low Inventory: ${name}`
+  }
+
+  function formatAlertBody(a: Alert): string {
+    const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
+    const side = sideMatch ? sideMatch[1].trim() : ''
     const isPoly = a.component === 'knee_poly'
-    let sizeSummary: string
-    if (isPoly) {
-      const bySize = new Map<string, string[]>()
-      for (const key of a.missing_sizes) {
-        const [sz, thick] = key.split('×')
-        if (!bySize.has(sz)) bySize.set(sz, [])
-        bySize.get(sz)!.push(thick + 'mm')
+    const lines: string[] = []
+
+    for (const sizeKey of a.missing_sizes.slice(0, 5)) {
+      const onHand = a.on_hand[sizeKey] ?? 0
+      const threshold = a.threshold[sizeKey] ?? 1
+
+      if (isPoly) {
+        const [sz, thick] = sizeKey.split('×')
+        if (onHand === 0) {
+          lines.push(`No size ${sz}, ${thick}mm remaining`)
+        } else {
+          lines.push(`Only ${onHand} size ${sz}, ${thick}mm remaining (need ${threshold})`)
+        }
+      } else {
+        const sizeLabel = side ? `${side} size ${sizeKey}` : `size ${sizeKey}`
+        if (onHand === 0) {
+          lines.push(`No ${sizeLabel} remaining`)
+        } else {
+          lines.push(`Only ${onHand} ${sizeLabel} remaining (need ${threshold})`)
+        }
       }
-      const parts = Array.from(bySize.entries()).map(([sz, thicknesses]) =>
-        `sz${sz}(${thicknesses.join(',')})`
-      )
-      sizeSummary = parts.slice(0, 3).join(' ')
-      if (parts.length > 3) sizeSummary += ` +${parts.length - 3} more`
-    } else {
-      sizeSummary = `sz ${a.missing_sizes.join(',')}`
     }
-    return `${side}${componentNames[variantId] ?? variantId} ${sizeSummary}`
+
+    if (a.missing_sizes.length > 5) {
+      lines.push(`+${a.missing_sizes.length - 5} more sizes below threshold`)
+    }
+
+    return lines.join('\n')
+  }
+
+  function formatPushBody(a: Alert): string {
+    const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
+    const side = sideMatch ? sideMatch[1].trim() : ''
+    const isPoly = a.component === 'knee_poly'
+    const parts: string[] = []
+
+    for (const sizeKey of a.missing_sizes.slice(0, 3)) {
+      const onHand = a.on_hand[sizeKey] ?? 0
+      if (isPoly) {
+        const [sz, thick] = sizeKey.split('×')
+        parts.push(onHand === 0 ? `no sz${sz} ${thick}mm` : `${onHand} sz${sz} ${thick}mm left`)
+      } else {
+        const label = side ? `${side} sz${sizeKey}` : `sz${sizeKey}`
+        parts.push(onHand === 0 ? `no ${label}` : `${onHand} ${label} left`)
+      }
+    }
+    if (a.missing_sizes.length > 3) parts.push(`+${a.missing_sizes.length - 3} more`)
+    return parts.join(' • ')
   }
 
   // Check for active replenishments to downgrade alerts
@@ -440,10 +477,9 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
         priority = 'warning'
       }
 
-      const summary = formatAlertSummary(alert)
       const title = priority === 'critical'
-        ? `CRITICAL: ${summary}`
-        : summary
+        ? `URGENT: ${formatAlertTitle(alert)}`
+        : formatAlertTitle(alert)
 
       // Duplicate suppression: check if identical unread notification exists in last 4 hours
       const fourHoursAgo = new Date(now.getTime() - 4 * 3600000).toISOString()
@@ -457,20 +493,23 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
 
       if ((existingCount ?? 0) > 0) continue // Skip duplicate
 
-      // Save notification
+      const notifBody = formatAlertBody(alert)
+      const pushBody = formatPushBody(alert)
+
+      // Save notification (full detail for in-app view)
       await supabase.from('notifications').insert({
         title,
-        body: `${alert.missing_sizes.length} sizes below threshold at ${alert.facility_name}`,
+        body: notifBody,
         type: 'inventory_alert',
         priority,
         action_type: 'view_alert',
         action_id: `${alert.component}|${alert.variant}`,
         facility_id: alert.facility_id,
-        expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(), // 7 day expiry
+        expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(),
         data: { component: alert.component, variant: alert.variant, missing_sizes: alert.missing_sizes, on_hand: alert.on_hand, threshold: alert.threshold },
       })
 
-      // Send push (respecting quiet hours and preference)
+      // Send push (compact version, respecting quiet hours)
       const shouldPush = !isQuietHours && (
         (priority === 'critical' && (prefs?.push_critical !== false)) ||
         (priority === 'warning' && (prefs?.push_warning !== false)) ||
@@ -487,7 +526,7 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               title,
-              body: `${alert.missing_sizes.length} sizes below threshold at ${alert.facility_name}`,
+              body: pushBody,
               data: { type: 'inventory_alert', action_type: 'view_alert', action_id: `${alert.component}|${alert.variant}` },
             }),
           })
