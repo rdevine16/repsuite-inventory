@@ -302,20 +302,29 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     }
   }
 
+  // Deduplicate alerts by facility + component + variant + missing sizes
+  const seenAlertKeys = new Set<string>()
+  const dedupedAlerts = alerts.filter((a) => {
+    const key = `${a.facility_id}|${a.component}|${a.variant}|${a.missing_sizes.sort().join(',')}`
+    if (seenAlertKeys.has(key)) return false
+    seenAlertKeys.add(key)
+    return true
+  })
+
   // Get previous alerts to detect changes
   const { data: previousAlerts } = await supabase.from('inventory_alerts').select('component, variant, missing_sizes')
   const previousAlertKeys = new Set(
     (previousAlerts ?? []).map((a) => `${a.component}|${a.variant}|${(a.missing_sizes as string[]).sort().join(',')}`)
   )
   const currentAlertKeys = new Set(
-    alerts.map((a) => `${a.component}|${a.variant}|${a.missing_sizes.sort().join(',')}`)
+    dedupedAlerts.map((a) => `${a.component}|${a.variant}|${a.missing_sizes.sort().join(',')}`)
   )
   const alertsChanged = currentAlertKeys.size !== previousAlertKeys.size ||
     [...currentAlertKeys].some((k) => !previousAlertKeys.has(k))
 
   // Clear old alerts and insert new ones
   await supabase.from('inventory_alerts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-  for (const alert of alerts) {
+  for (const alert of dedupedAlerts) {
     await supabase.from('inventory_alerts').insert({
       facility_id: alert.facility_id,
       surgeon_name: alert.surgeon_name,
@@ -331,7 +340,7 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
 
   // Generate replenishment proposals
   await supabase.from('replenishment_requests').delete().eq('status', 'proposed')
-  for (const alert of alerts) {
+  for (const alert of dedupedAlerts) {
     const kitName = getKitName(alert.component, alert.variant)
     await supabase.from('replenishment_requests').insert({
       facility_id: alert.facility_id,
@@ -349,8 +358,8 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   }
 
   // Send push notification only if alerts changed since last check
-  if (alerts.length > 0 && alertsChanged) {
-    const alertSummary = alerts.map((a) => {
+  if (dedupedAlerts.length > 0 && alertsChanged) {
+    const alertSummary = dedupedAlerts.map((a) => {
       const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
       const side = sideMatch ? sideMatch[1] : ''
       const variantId = sideMatch ? sideMatch[2] : a.variant
@@ -387,7 +396,7 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
       return `${side}${names[variantId] ?? variantId} ${sizeSummary}`
     })
 
-    const pushTitle = `${alerts.length} Inventory Alert${alerts.length === 1 ? '' : 's'}`
+    const pushTitle = `${dedupedAlerts.length} Inventory Alert${dedupedAlerts.length === 1 ? '' : 's'}`
     const pushBody = alertSummary.slice(0, 3).join(' • ')
 
     // Save to notifications table
@@ -420,5 +429,5 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     }
   }
 
-  return alerts.length
+  return dedupedAlerts.length
 }
