@@ -166,41 +166,32 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
 
     const onHandCounts = buildOnHandCounts(inventoryItems)
 
-    // Also count implants from kits shipped for cases at this facility
-    // These are parts assigned to cases (from getCaseById parts[])
-    // Get all non-completed cases at this facility
-    const { data: facilityCaseIds } = await supabase
+    // Also count loaner kit parts shipped to this facility
+    // Loaner kits stay at the facility even after a case completes — only the
+    // actually-used implants get deducted from facility_inventory. So we count
+    // loaner parts from ALL cases (including completed) as available inventory.
+    const { data: facilityCaseSfIds } = await supabase
       .from('cases')
-      .select('id')
+      .select('sf_id')
       .eq('facility_id', facilityId)
-      .neq('status', 'Completed')
 
-    if (facilityCaseIds && facilityCaseIds.length > 0) {
-      // Get sf_ids for these cases
-      const { data: facilityCaseSfIds } = await supabase
-        .from('cases')
-        .select('sf_id')
-        .eq('facility_id', facilityId)
-        .neq('status', 'Completed')
+    const sfIds = facilityCaseSfIds?.map((c) => c.sf_id).filter(Boolean) ?? []
 
-      const sfIds = facilityCaseSfIds?.map((c) => c.sf_id).filter(Boolean) ?? []
+    if (sfIds.length > 0) {
+      const { data: caseParts } = await supabase
+        .from('case_parts')
+        .select('catalog_number, quantity, is_loaner')
+        .in('case_sf_id', sfIds)
+        .eq('is_loaner', true)
 
-      if (sfIds.length > 0) {
-        const { data: caseParts } = await supabase
-          .from('case_parts')
-          .select('catalog_number, quantity')
-          .in('case_sf_id', sfIds)
+      if (caseParts) {
+        const kitItems = caseParts
+          .filter((p) => p.catalog_number)
+          .map((p) => ({ gtin: null, reference_number: p.catalog_number }))
 
-        if (caseParts) {
-          // Convert case parts to the same format as inventory items and add to on-hand counts
-          const kitItems = caseParts
-            .filter((p) => p.catalog_number)
-            .map((p) => ({ gtin: null, reference_number: p.catalog_number }))
-
-          const kitCounts = buildOnHandCounts(kitItems)
-          for (const [key, count] of Object.entries(kitCounts)) {
-            onHandCounts[key] = (onHandCounts[key] ?? 0) + count
-          }
+        const kitCounts = buildOnHandCounts(kitItems)
+        for (const [key, count] of Object.entries(kitCounts)) {
+          onHandCounts[key] = (onHandCounts[key] ?? 0) + count
         }
       }
     }
