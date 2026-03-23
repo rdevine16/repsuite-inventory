@@ -13,9 +13,9 @@ function getAdminClient() {
 
 // Generate APNs JWT token
 function generateAPNsToken(): string | null {
-  const keyId = process.env.APNS_KEY_ID
-  const teamId = process.env.APNS_TEAM_ID
-  const privateKey = process.env.APNS_PRIVATE_KEY
+  const keyId = process.env.APNS_KEY_ID?.trim()
+  const teamId = process.env.APNS_TEAM_ID?.trim()
+  const privateKey = process.env.APNS_PRIVATE_KEY?.trim()
 
   if (!keyId || !teamId || !privateKey) return null
 
@@ -95,8 +95,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const bundleId = process.env.APNS_BUNDLE_ID ?? 'com.orbitsurgical.RepSuiteConnect'
-    const apnsHost = process.env.APNS_ENVIRONMENT === 'production'
+    const bundleId = (process.env.APNS_BUNDLE_ID ?? 'com.orbitsurgical.RepSuiteConnect').trim()
+    const apnsHost = process.env.APNS_ENVIRONMENT?.trim() === 'production'
       ? 'https://api.push.apple.com'
       : 'https://api.sandbox.push.apple.com'
 
