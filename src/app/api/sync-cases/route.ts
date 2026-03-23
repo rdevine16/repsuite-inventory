@@ -253,7 +253,6 @@ async function syncCases() {
         detailsSynced++
       }
       // Sync kit issues (missing parts) and send push if new
-      const setsArr = detail.sets as Array<Record<string, unknown>> | undefined
       const partsArr2 = detail.parts as Array<Record<string, unknown>> | undefined
       if (setsArr && partsArr2) {
         for (const set of setsArr) {
