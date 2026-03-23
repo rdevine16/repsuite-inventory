@@ -436,7 +436,21 @@ async function syncCases() {
           if (!sourceLocation || !caseRow.facility_id) continue
 
           // Resolve source location to a facility via sub-inventory mapping
-          const sourceFacilityId = facilityBySubInventory[sourceLocation] ?? caseRow.facility_id
+          let sourceFacilityId = facilityBySubInventory[sourceLocation]
+
+          // Auto-discover: if source_location isn't mapped yet, map it to the case's facility
+          if (!sourceFacilityId && caseRow.facility_id) {
+            await supabase
+              .from('facilities')
+              .update({ repsuite_sub_inventory_id: sourceLocation })
+              .eq('id', caseRow.facility_id)
+              .is('repsuite_sub_inventory_id', null)
+
+            facilityBySubInventory[sourceLocation] = caseRow.facility_id
+            sourceFacilityId = caseRow.facility_id
+          }
+
+          if (!sourceFacilityId) sourceFacilityId = caseRow.facility_id
 
           // Find matching facility_inventory item (match by ref# and lot if available)
           let matchQuery = supabase
@@ -498,6 +512,103 @@ async function syncCases() {
         console.error(`Error processing usage for ${caseRow.sf_id}:`, usageErr)
       }
     }
+  }
+
+  // Detect missing sources and conflicts on usage items
+  let sourceNotifications = 0
+  try {
+    // Find usage items with no source and not yet notified
+    const { data: missingSourceItems } = await supabase
+      .from('case_usage_items')
+      .select('id, case_id, catalog_number, source_location, user_source_facility_id, notified_at, cases!inner(case_id, facility_id)')
+      .is('source_location', null)
+      .is('user_source_facility_id', null)
+      .is('notified_at', null)
+      .neq('current_status', 'deducted')
+
+    if (missingSourceItems && missingSourceItems.length > 0) {
+      // Group by case for notification
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const byCaseId = new Map<string, { caseId: string; count: number }>()
+      for (const item of missingSourceItems) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const caseInfo = item.cases as any
+        const caseId = caseInfo?.case_id ?? 'Unknown'
+        if (!byCaseId.has(caseId)) byCaseId.set(caseId, { caseId, count: 0 })
+        byCaseId.get(caseId)!.count++
+      }
+
+      // Mark as notified
+      const itemIds = missingSourceItems.map((i) => i.id)
+      await supabase
+        .from('case_usage_items')
+        .update({ notified_at: new Date().toISOString() })
+        .in('id', itemIds)
+
+      // Send push notification
+      const summaries = Array.from(byCaseId.values()).map((c) => `${c.caseId}: ${c.count} items`)
+      const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+      try {
+        await fetch(`${baseUrl}/api/send-push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Missing Inventory Source',
+            body: summaries.slice(0, 3).join(' • '),
+            data: { type: 'missing_source' },
+          }),
+        })
+        sourceNotifications = missingSourceItems.length
+      } catch { /* push is non-critical */ }
+    }
+
+    // Detect source conflicts: RepSuite filled in source_location that differs from user-specified source
+    const { data: conflictCandidates } = await supabase
+      .from('case_usage_items')
+      .select('id, source_location, user_source_facility_id, source_conflict, cases!inner(case_id)')
+      .not('source_location', 'is', null)
+      .not('user_source_facility_id', 'is', null)
+      .eq('source_conflict', false)
+      .eq('source_conflict_resolved', false)
+
+    if (conflictCandidates && conflictCandidates.length > 0) {
+      const conflictIds: string[] = []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const conflictCases = new Set<string>()
+
+      for (const item of conflictCandidates) {
+        const repsuiteFacilityId = facilityBySubInventory[item.source_location ?? '']
+        if (repsuiteFacilityId && repsuiteFacilityId !== item.user_source_facility_id) {
+          conflictIds.push(item.id)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const caseInfo = item.cases as any
+          conflictCases.add(caseInfo?.case_id ?? 'Unknown')
+        }
+      }
+
+      if (conflictIds.length > 0) {
+        await supabase
+          .from('case_usage_items')
+          .update({ source_conflict: true })
+          .in('id', conflictIds)
+
+        // Send conflict push notification
+        const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+        try {
+          await fetch(`${baseUrl}/api/send-push`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: 'Source Conflict Detected',
+              body: `${conflictIds.length} items on ${conflictCases.size} case(s) have conflicting sources`,
+              data: { type: 'source_conflict' },
+            }),
+          })
+        } catch { /* push is non-critical */ }
+      }
+    }
+  } catch (sourceErr) {
+    console.error('Source detection error:', sourceErr)
   }
 
   // Run inventory check after sync
