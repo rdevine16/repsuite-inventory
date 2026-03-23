@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { getAllCases, getCaseById, formatDateForAPI, refreshJwt } from '@/lib/repsuite-api'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 // Use service role to bypass RLS
 function getAdminClient() {
@@ -634,13 +634,7 @@ async function syncCases() {
 }
 
 // GET — called by Vercel Cron
-export async function GET(request: NextRequest) {
-  // Verify cron secret to prevent unauthorized calls
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export async function GET() {
   try {
     return await syncCases()
   } catch (err) {
