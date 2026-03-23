@@ -347,14 +347,36 @@ async function syncCases() {
     }
   }
 
-  // Auto-deduct inventory for newly completed cases
+  // Auto-deduct inventory for newly completed cases + completed cases missing usage items
   let autoDeducted = 0
-  if (newlyCompletedSfIds.length > 0) {
-    // Get the case rows for newly completed cases
+
+  // Also find completed cases that have no usage items (e.g. reprocessing after a fix)
+  const { data: completedWithoutUsage } = await supabase
+    .from('cases')
+    .select('sf_id')
+    .eq('status', 'Completed')
+    .not('external_id', 'is', null)
+    .not('facility_id', 'is', null)
+
+  const completedSfIds = completedWithoutUsage?.map((c) => c.sf_id).filter(Boolean) ?? []
+  const { data: existingUsageSfIds } = await supabase
+    .from('case_usage_items')
+    .select('case_id, cases!inner(sf_id)')
+
+  const sfIdsWithUsage = new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    existingUsageSfIds?.map((u: any) => u.cases?.sf_id).filter(Boolean) ?? []
+  )
+  const missingUsageSfIds = completedSfIds.filter((id) => id && !sfIdsWithUsage.has(id))
+
+  const allCompletedToProcess = [...new Set([...newlyCompletedSfIds, ...missingUsageSfIds])]
+
+  if (allCompletedToProcess.length > 0) {
+    // Get the case rows for completed cases needing processing
     const { data: completedCaseRows } = await supabase
       .from('cases')
       .select('id, sf_id, external_id, facility_id, hospital_site_number')
-      .in('sf_id', newlyCompletedSfIds)
+      .in('sf_id', allCompletedToProcess)
       .not('external_id', 'is', null)
 
     for (const caseRow of completedCaseRows ?? []) {
