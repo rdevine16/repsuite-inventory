@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ sent, total: tokens.length, apnsHost, errors })
+    return NextResponse.json({ sent, total: tokens.length })
   } catch (err) {
     console.error('Push error:', err)
     return NextResponse.json(
