@@ -18,7 +18,11 @@ function generateAPNsToken(): string | null {
 
   if (!keyId || !teamId || !privateKey) return null
 
-  const token = jwt.sign({}, privateKey.replace(/\\n/g, '\n'), {
+  // Handle both literal \n strings and already-converted newlines
+  const formattedKey = privateKey.includes('\\n')
+    ? privateKey.replace(/\\n/g, '\n')
+    : privateKey
+  const token = jwt.sign({}, formattedKey, {
     algorithm: 'ES256',
     header: {
       alg: 'ES256',
@@ -86,8 +90,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ sent, total: tokens.length })
   } catch (err) {
+    console.error('Push error:', err)
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { error: err instanceof Error ? err.message : 'Unknown error', stack: err instanceof Error ? err.stack : undefined },
       { status: 500 }
     )
   }
