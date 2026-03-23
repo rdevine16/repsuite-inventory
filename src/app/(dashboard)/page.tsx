@@ -32,16 +32,16 @@ export default async function DashboardPage() {
     .select('id, name, address')
     .order('name')
 
-  // Get sessions per facility with latest date
+  // Get last audit date per facility from sessions
   const { data: sessions } = await supabase
     .from('inventory_sessions')
-    .select('id, facility_id, started_at, status, total_items')
+    .select('facility_id, started_at')
     .order('started_at', { ascending: false })
 
-  // Get item counts and expiration data per facility
+  // Get item counts and expiration data per facility from facility_inventory
   const { data: allItems } = await supabase
-    .from('inventory_items')
-    .select('id, description, lot_number, expiration_date, session_id, inventory_sessions(facility_id)')
+    .from('facility_inventory')
+    .select('id, facility_id, description, lot_number, expiration_date')
 
   const today = new Date().toISOString().split('T')[0]
   const ninetyDays = new Date()
@@ -56,10 +56,8 @@ export default async function DashboardPage() {
     lastScan: string | null
   }> = {}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  allItems?.forEach((item: any) => {
-    const sessions = item.inventory_sessions
-    const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
+  allItems?.forEach((item: { facility_id: string; expiration_date: string | null }) => {
+    const facilityId = item.facility_id
     if (!facilityId) return
 
     if (!facilityStats[facilityId]) {
@@ -243,12 +241,9 @@ export default async function DashboardPage() {
   }
 
   const expirationAlerts: ExpirationItem[] = []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  allItems?.forEach((item: any) => {
+  allItems?.forEach((item: { id: string; facility_id: string; description: string | null; lot_number: string | null; expiration_date: string | null }) => {
     if (!item.expiration_date) return
-    const sessions = item.inventory_sessions
-    const facilityId = Array.isArray(sessions) ? sessions[0]?.facility_id : sessions?.facility_id
-    const facility = facilities?.find((f) => f.id === facilityId)
+    const facility = facilities?.find((f) => f.id === item.facility_id)
 
     if (item.expiration_date < today) {
       expirationAlerts.push({

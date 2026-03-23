@@ -126,6 +126,7 @@ async function syncCases() {
 
   // Upsert cases and track which are new or changed
   const changedCaseSfIds: string[] = []
+  const newlyCompletedSfIds: string[] = []
   let synced = 0
   for (const c of uniqueCases) {
     const siteNumber = extractSiteNumber(c.hospitalName)
@@ -156,6 +157,11 @@ async function syncCases() {
     const oldStatus = existingStatusMap[c.sfId]
     if (!oldStatus || oldStatus !== c.status) {
       changedCaseSfIds.push(c.sfId)
+    }
+
+    // Track cases that just became Completed (for auto-deduction)
+    if (c.status === 'Completed' && oldStatus !== 'Completed') {
+      newlyCompletedSfIds.push(c.sfId)
     }
 
     const { error: upsertError } = await supabase
@@ -250,6 +256,135 @@ async function syncCases() {
     }
   }
 
+  // Auto-deduct inventory for newly completed cases
+  let autoDeducted = 0
+  if (newlyCompletedSfIds.length > 0) {
+    // Get the case rows for newly completed cases
+    const { data: completedCaseRows } = await supabase
+      .from('cases')
+      .select('id, sf_id, external_id, facility_id, hospital_site_number')
+      .in('sf_id', newlyCompletedSfIds)
+      .not('external_id', 'is', null)
+
+    for (const caseRow of completedCaseRows ?? []) {
+      if (!caseRow.external_id || !caseRow.sf_id) continue
+
+      // Check if we already processed usage for this case
+      const { count: existingUsageCount } = await supabase
+        .from('case_usage_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('case_id', caseRow.id)
+
+      if ((existingUsageCount ?? 0) > 0) continue // Already processed
+
+      try {
+        const detail = await getCaseById(accessToken, caseRow.external_id, caseRow.sf_id)
+        if (!detail) continue
+
+        const usages = detail.usages as Array<Record<string, unknown>> | undefined
+        if (!usages || !Array.isArray(usages) || usages.length === 0) continue
+
+        for (const usage of usages) {
+          const catalogNumber = (usage.catalog_number ?? '') as string
+          if (!catalogNumber) continue
+
+          const lotNumber = (usage.lot_number__c ?? null) as string | null
+          const sourceLocation = (usage.inventory__c ?? null) as string | null
+          const partName = (usage.part_name ?? usage.part_desc ?? usage.name ?? '') as string
+          const productSfid = (usage.sfid ?? usage.product_sfid ?? null) as string | null
+          const usageName = (usage.usage_name ?? usage.name ?? null) as string | null
+          const quantity = typeof usage.quantity__c === 'number' ? usage.quantity__c :
+            typeof usage.quantity__c === 'string' ? parseInt(usage.quantity__c as string) || 1 : 1
+
+          // Insert usage item
+          const { data: usageItem, error: usageError } = await supabase
+            .from('case_usage_items')
+            .insert({
+              case_id: caseRow.id,
+              catalog_number: catalogNumber,
+              part_name: partName || null,
+              lot_number: lotNumber,
+              quantity,
+              source_location: sourceLocation,
+              usage_name: usageName,
+              product_sfid: productSfid,
+              auto_deducted: false,
+              manually_overridden: false,
+              current_status: 'not_matched',
+            })
+            .select('id')
+            .single()
+
+          if (usageError || !usageItem) continue
+
+          // Auto-deduct only if source is from this facility
+          const isFromFacility = sourceLocation && caseRow.hospital_site_number &&
+            sourceLocation === caseRow.hospital_site_number
+
+          if (!isFromFacility || !caseRow.facility_id) continue
+
+          // Find matching facility_inventory item (match by ref# and lot if available)
+          let matchQuery = supabase
+            .from('facility_inventory')
+            .select('*')
+            .eq('reference_number', catalogNumber)
+            .eq('facility_id', caseRow.facility_id)
+            .limit(1)
+
+          if (lotNumber) {
+            matchQuery = matchQuery.eq('lot_number', lotNumber)
+          }
+
+          const { data: matchedItems } = await matchQuery
+
+          // If no lot match, try without lot
+          let inventoryItem = matchedItems?.[0]
+          if (!inventoryItem && lotNumber) {
+            const { data: fallbackItems } = await supabase
+              .from('facility_inventory')
+              .select('*')
+              .eq('reference_number', catalogNumber)
+              .eq('facility_id', caseRow.facility_id)
+              .limit(1)
+
+            inventoryItem = fallbackItems?.[0]
+          }
+
+          if (!inventoryItem) continue
+
+          // Move to used_items
+          await supabase.from('used_items').insert({
+            case_usage_item_id: usageItem.id,
+            original_inventory_item_id: inventoryItem.id,
+            facility_id: caseRow.facility_id,
+            gtin: inventoryItem.gtin,
+            reference_number: inventoryItem.reference_number,
+            description: inventoryItem.description,
+            lot_number: inventoryItem.lot_number,
+            expiration_date: inventoryItem.expiration_date,
+          })
+
+          // Remove from facility_inventory
+          await supabase.from('facility_inventory').delete().eq('id', inventoryItem.id)
+
+          // Mark as auto-deducted
+          await supabase
+            .from('case_usage_items')
+            .update({
+              current_status: 'deducted',
+              auto_deducted: true,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', usageItem.id)
+
+          autoDeducted++
+        }
+      } catch (usageErr) {
+        console.error(`Error processing usage for ${caseRow.sf_id}:`, usageErr)
+      }
+    }
+  }
+
   // Run inventory check after sync
   let alertCount = 0
   try {
@@ -264,6 +399,7 @@ async function syncCases() {
     synced,
     total: uniqueCases.length,
     detailsSynced,
+    autoDeducted,
     alertCount,
     dateRange: `${formatDateForAPI(today)} - ${formatDateForAPI(endDate)}`,
   })

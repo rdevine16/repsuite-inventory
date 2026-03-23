@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm list:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/ryandevine/Desktop/RepsuiteConnect/RepSuiteConnect/.claude/commands",
+      "/Users/ryandevine/Desktop/RepSuiteConnect/RepSuiteConnect/.claude/commands",
+      "/Users/ryandevine/Desktop/RepsuiteConnect/RepSuiteConnect/.claude/skills/phase-start",
+      "/Users/ryandevine/Desktop/RepSuiteConnect/RepSuiteConnect/.claude/skills/phase-start",
+      "/Users/ryandevine/Desktop/RepsuiteConnect/RepSuiteConnect/.claude/skills/audit",
+      "/Users/ryandevine/Desktop/RepSuiteConnect/RepSuiteConnect/.claude/skills/audit",
+      "/Users/ryandevine/Desktop/RepsuiteConnect/RepSuiteConnect/.claude/skills/wrap-up",
+      "/Users/ryandevine/Desktop/RepSuiteConnect/RepSuiteConnect/.claude/skills/wrap-up",
+      "/Users/ryandevine/Desktop/RepsuiteConnect/RepSuiteConnect/.claude/skills/fix",
+      "/Users/ryandevine/Desktop/RepSuiteConnect/RepSuiteConnect/.claude/skills/fix"
+    ]
+  }
+}

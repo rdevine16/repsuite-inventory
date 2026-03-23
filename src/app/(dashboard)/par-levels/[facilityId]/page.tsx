@@ -30,22 +30,12 @@ export default async function FacilityParLevelsPage({
     parMap[`${p.category}|${p.variant}|${p.size}`] = p.par_quantity
   })
 
-  const { data: sessions } = await supabase
-    .from('inventory_sessions')
-    .select('id')
+  const { data: items } = await supabase
+    .from('facility_inventory')
+    .select('gtin, reference_number')
     .eq('facility_id', facilityId)
 
-  const sessionIds = sessions?.map((s: { id: string }) => s.id) ?? []
-
-  let onHandMap: Record<string, number> = {}
-  if (sessionIds.length > 0) {
-    const { data: items } = await supabase
-      .from('inventory_items')
-      .select('gtin, reference_number')
-      .in('session_id', sessionIds)
-
-    onHandMap = buildOnHandCounts(items ?? [])
-  }
+  const onHandMap = buildOnHandCounts(items ?? [])
 
   const { data: profile } = await supabase
     .from('profiles')

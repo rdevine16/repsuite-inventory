@@ -4,17 +4,14 @@ import { useState, useMemo } from 'react'
 
 interface InventoryItem {
   id: string
-  session_id: string
+  facility_id: string
   gtin: string | null
   reference_number: string | null
   description: string | null
   lot_number: string | null
   expiration_date: string | null
-  scanned_at: string
-  inventory_sessions: {
-    facility_id: string
-    facilities: { name: string } | null
-  } | null
+  added_at: string
+  facilities: { name: string } | { name: string }[] | null
 }
 
 interface Facility {
@@ -22,30 +19,18 @@ interface Facility {
   name: string
 }
 
-interface Session {
-  id: string
-  facility_id: string
-  started_at: string
-  status: string
-  total_items: number
-  facilities: { name: string } | { name: string }[] | null
-}
-
 export default function InventoryTable({
   items,
   facilities,
-  sessions,
   gtinDisplayName,
 }: {
   items: InventoryItem[]
   facilities: Facility[]
-  sessions: Session[]
   gtinDisplayName: Record<string, string>
 }) {
   const [search, setSearch] = useState('')
   const [facilityFilter, setFacilityFilter] = useState('all')
-  const [sessionFilter, setSessionFilter] = useState('all')
-  const [sortField, setSortField] = useState<'description' | 'reference_number' | 'expiration_date' | 'scanned_at'>('scanned_at')
+  const [sortField, setSortField] = useState<'description' | 'reference_number' | 'expiration_date' | 'added_at'>('added_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
   const perPage = 25
@@ -55,12 +40,8 @@ export default function InventoryTable({
 
     if (facilityFilter !== 'all') {
       result = result.filter(
-        (item) => item.inventory_sessions?.facility_id === facilityFilter
+        (item) => item.facility_id === facilityFilter
       )
-    }
-
-    if (sessionFilter !== 'all') {
-      result = result.filter((item) => item.session_id === sessionFilter)
     }
 
     if (search) {
@@ -83,7 +64,7 @@ export default function InventoryTable({
     })
 
     return result
-  }, [items, search, facilityFilter, sessionFilter, sortField, sortDir])
+  }, [items, search, facilityFilter, sortField, sortDir, gtinDisplayName])
 
   const totalPages = Math.ceil(filteredItems.length / perPage)
   const paginatedItems = filteredItems.slice((page - 1) * perPage, page * perPage)
@@ -133,27 +114,13 @@ export default function InventoryTable({
           </div>
           <select
             value={facilityFilter}
-            onChange={(e) => { setFacilityFilter(e.target.value); setSessionFilter('all'); setPage(1) }}
+            onChange={(e) => { setFacilityFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           >
             <option value="all">All Facilities</option>
             {facilities.map((f) => (
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
-          </select>
-          <select
-            value={sessionFilter}
-            onChange={(e) => { setSessionFilter(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          >
-            <option value="all">All Sessions</option>
-            {sessions
-              .filter((s) => facilityFilter === 'all' || s.facility_id === facilityFilter)
-              .map((s) => (
-                <option key={s.id} value={s.id}>
-                  {Array.isArray(s.facilities) ? s.facilities[0]?.name : s.facilities?.name} - {new Date(s.started_at).toLocaleDateString()}
-                </option>
-              ))}
           </select>
         </div>
         <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
@@ -197,55 +164,58 @@ export default function InventoryTable({
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Facility</th>
                 <th
                   className="text-left py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
-                  onClick={() => handleSort('scanned_at')}
+                  onClick={() => handleSort('added_at')}
                 >
-                  Scanned <SortIcon field="scanned_at" />
+                  Added <SortIcon field="added_at" />
                 </th>
               </tr>
             </thead>
             <tbody>
-              {paginatedItems.map((item) => (
-                <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="py-2.5 px-4 max-w-xs">
-                    <span className="font-medium text-gray-900 block truncate">
-                      {(item.gtin && gtinDisplayName[item.gtin]) || item.description || '—'}
-                    </span>
-                    {item.gtin && gtinDisplayName[item.gtin] && gtinDisplayName[item.gtin] !== item.description && (
-                      <span className="text-xs text-gray-400 block truncate">{item.description}</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
-                    {item.reference_number ?? '—'}
-                  </td>
-                  <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
-                    {item.lot_number ?? '—'}
-                  </td>
-                  <td className="py-2.5 px-4">
-                    {item.expiration_date ? (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        isExpired(item.expiration_date)
-                          ? 'bg-red-100 text-red-700'
-                          : isExpiringSoon(item.expiration_date)
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {item.expiration_date}
+              {paginatedItems.map((item) => {
+                const facilityName = Array.isArray(item.facilities) ? item.facilities[0]?.name : item.facilities?.name
+                return (
+                  <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="py-2.5 px-4 max-w-xs">
+                      <span className="font-medium text-gray-900 block truncate">
+                        {(item.gtin && gtinDisplayName[item.gtin]) || item.description || '—'}
                       </span>
-                    ) : '—'}
-                  </td>
-                  <td className="py-2.5 px-4 text-gray-600 text-xs">
-                    {item.inventory_sessions?.facilities?.name ?? '—'}
-                  </td>
-                  <td className="py-2.5 px-4 text-gray-500 text-xs">
-                    {new Date(item.scanned_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </td>
-                </tr>
-              ))}
+                      {item.gtin && gtinDisplayName[item.gtin] && gtinDisplayName[item.gtin] !== item.description && (
+                        <span className="text-xs text-gray-400 block truncate">{item.description}</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
+                      {item.reference_number ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-600 font-mono text-xs">
+                      {item.lot_number ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-4">
+                      {item.expiration_date ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          isExpired(item.expiration_date)
+                            ? 'bg-red-100 text-red-700'
+                            : isExpiringSoon(item.expiration_date)
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {item.expiration_date}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-600 text-xs">
+                      {facilityName ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-4 text-gray-500 text-xs">
+                      {new Date(item.added_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                  </tr>
+                )
+              })}
               {paginatedItems.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-gray-400">

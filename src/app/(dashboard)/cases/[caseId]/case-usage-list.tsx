@@ -38,7 +38,7 @@ export default function CaseUsageList({
     setProcessing(item.id)
 
     if (item.current_status === 'deducted') {
-      // Restore: move item back from used_items to inventory_items
+      // Restore: move item back from used_items to facility_inventory
       const { data: usedItem } = await supabase
         .from('used_items')
         .select('*')
@@ -47,16 +47,15 @@ export default function CaseUsageList({
         .single()
 
       if (usedItem) {
-        // Re-insert into inventory
-        await supabase.from('inventory_items').insert({
-          id: usedItem.original_inventory_item_id,
-          session_id: usedItem.session_id,
+        // Re-insert into facility_inventory
+        await supabase.from('facility_inventory').insert({
+          facility_id: usedItem.facility_id,
+          user_id: usedItem.user_id ?? undefined,
           gtin: usedItem.gtin,
           reference_number: usedItem.reference_number,
           description: usedItem.description,
           lot_number: usedItem.lot_number,
           expiration_date: usedItem.expiration_date,
-          scanned_at: usedItem.scanned_at,
         })
 
         // Mark used_item as restored
@@ -82,12 +81,12 @@ export default function CaseUsageList({
         )
       )
     } else {
-      // Deduct: find matching inventory item and move to used_items
+      // Deduct: find matching facility_inventory item and move to used_items
       const { data: matchedItems } = await supabase
-        .from('inventory_items')
-        .select('*, inventory_sessions!inner(facility_id)')
+        .from('facility_inventory')
+        .select('*')
         .eq('reference_number', item.catalog_number)
-        .eq('inventory_sessions.facility_id', facilityId)
+        .eq('facility_id', facilityId)
         .limit(1)
 
       if (matchedItems && matchedItems.length > 0) {
@@ -97,18 +96,16 @@ export default function CaseUsageList({
         await supabase.from('used_items').insert({
           case_usage_item_id: item.id,
           original_inventory_item_id: inventoryItem.id,
-          session_id: inventoryItem.session_id,
           facility_id: facilityId,
           gtin: inventoryItem.gtin,
           reference_number: inventoryItem.reference_number,
           description: inventoryItem.description,
           lot_number: inventoryItem.lot_number,
           expiration_date: inventoryItem.expiration_date,
-          scanned_at: inventoryItem.scanned_at,
         })
 
-        // Remove from inventory
-        await supabase.from('inventory_items').delete().eq('id', inventoryItem.id)
+        // Remove from facility_inventory
+        await supabase.from('facility_inventory').delete().eq('id', inventoryItem.id)
 
         // Update usage item
         await supabase

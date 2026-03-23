@@ -159,20 +159,12 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     const facilityCases = tomorrowCases.filter((c) => c.facility_id === facilityId)
     if (facilityCases.length === 0) continue
 
-    const { data: sessions } = await supabase
-      .from('inventory_sessions')
-      .select('id')
+    const { data: inventoryItems } = await supabase
+      .from('facility_inventory')
+      .select('gtin, reference_number')
       .eq('facility_id', facilityId)
 
-    if (!sessions || sessions.length === 0) continue
-
-    const sessionIds = sessions.map((s) => s.id)
-    const { data: inventoryItems } = await supabase
-      .from('inventory_items')
-      .select('gtin, reference_number')
-      .in('session_id', sessionIds)
-
-    if (!inventoryItems) continue
+    if (!inventoryItems || inventoryItems.length === 0) continue
 
     const onHandCounts = buildOnHandCounts(inventoryItems)
 
