@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/sync-cases",
-      "schedule": "*/2 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
