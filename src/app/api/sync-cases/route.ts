@@ -91,14 +91,16 @@ async function syncCases() {
     'Completed'
   )
 
-  const cases = [...upcomingCases, ...completedCases]
-  // Deduplicate by sfId
-  const seen = new Set<string>()
-  const uniqueCases = cases.filter((c) => {
-    if (seen.has(c.sfId)) return false
-    seen.add(c.sfId)
-    return true
-  })
+  // Merge cases, preferring completed status when a case appears in both lists
+  const caseMap = new Map<string, typeof upcomingCases[number]>()
+  for (const c of upcomingCases) {
+    caseMap.set(c.sfId, c)
+  }
+  for (const c of completedCases) {
+    // Completed status takes priority over requested/shipped
+    caseMap.set(c.sfId, c)
+  }
+  const uniqueCases = Array.from(caseMap.values())
 
   // Get facility mapping (repsuite site number → facility id)
   const { data: facilities } = await supabase
@@ -192,17 +194,38 @@ async function syncCases() {
     .from('case_parts')
     .select('id', { count: 'exact', head: true })
 
-  // If no parts exist yet, pull all upcoming cases. Otherwise only pull changed cases.
+  // Pull details for changed cases and any cases missing parts
+  const { data: casesWithoutParts } = await supabase
+    .from('cases')
+    .select('sf_id')
+    .gte('surgery_date', new Date().toISOString())
+    .not('external_id', 'is', null)
+    .neq('status', 'Completed')
+
+  const sfIdsWithoutParts: string[] = []
+  if (casesWithoutParts) {
+    const { data: existingPartsSfIds } = await supabase
+      .from('case_parts')
+      .select('case_sf_id')
+    const partsSet = new Set(existingPartsSfIds?.map((p) => p.case_sf_id) ?? [])
+    for (const c of casesWithoutParts) {
+      if (c.sf_id && !partsSet.has(c.sf_id)) {
+        sfIdsWithoutParts.push(c.sf_id)
+      }
+    }
+  }
+
+  const allSfIdsToFetch = [...new Set([...changedCaseSfIds, ...sfIdsWithoutParts])]
+
   let detailsQuery = supabase
     .from('cases')
     .select('sf_id, external_id')
     .gte('surgery_date', new Date().toISOString())
     .not('external_id', 'is', null)
 
-  if ((existingPartsCount ?? 0) > 0 && changedCaseSfIds.length > 0) {
-    detailsQuery = detailsQuery.in('sf_id', changedCaseSfIds)
-  } else if ((existingPartsCount ?? 0) > 0 && changedCaseSfIds.length === 0) {
-    // No changes detected, skip detail pull
+  if (allSfIdsToFetch.length > 0) {
+    detailsQuery = detailsQuery.in('sf_id', allSfIdsToFetch)
+  } else {
     detailsQuery = detailsQuery.limit(0)
   }
 
