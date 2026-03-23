@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import * as jwt from 'jsonwebtoken'
+import http2 from 'node:http2'
 
 function getAdminClient() {
   return createClient(
@@ -18,7 +19,6 @@ function generateAPNsToken(): string | null {
 
   if (!keyId || !teamId || !privateKey) return null
 
-  // Handle both literal \n strings and already-converted newlines
   const formattedKey = privateKey.includes('\\n')
     ? privateKey.replace(/\\n/g, '\n')
     : privateKey
@@ -35,12 +35,51 @@ function generateAPNsToken(): string | null {
   return token
 }
 
+// Send push via HTTP/2 (required by APNs)
+function sendAPNsPush(
+  host: string,
+  deviceToken: string,
+  apnsToken: string,
+  bundleId: string,
+  payload: string
+): Promise<{ ok: boolean; status: number; body: string }> {
+  return new Promise((resolve) => {
+    const client = http2.connect(host)
+    const req = client.request({
+      ':method': 'POST',
+      ':path': `/3/device/${deviceToken}`,
+      'authorization': `bearer ${apnsToken}`,
+      'apns-topic': bundleId,
+      'apns-push-type': 'alert',
+      'apns-priority': '10',
+      'content-type': 'application/json',
+    })
+
+    let data = ''
+    req.on('response', (headers) => {
+      const status = headers[':status'] as number
+      req.on('data', (chunk) => { data += chunk })
+      req.on('end', () => {
+        client.close()
+        resolve({ ok: status === 200, status, body: data })
+      })
+    })
+
+    req.on('error', (err) => {
+      client.close()
+      resolve({ ok: false, status: 0, body: err.message })
+    })
+
+    req.write(payload)
+    req.end()
+  })
+}
+
 export async function POST(request: Request) {
   try {
     const { title, body, data } = await request.json()
     const supabase = getAdminClient()
 
-    // Get all device tokens
     const { data: tokens } = await supabase
       .from('device_tokens')
       .select('device_token')
@@ -62,35 +101,23 @@ export async function POST(request: Request) {
       ? 'https://api.push.apple.com'
       : 'https://api.sandbox.push.apple.com'
 
+    const payload = JSON.stringify({
+      aps: {
+        alert: { title, body },
+        sound: 'default',
+        badge: 1,
+      },
+      data,
+    })
+
     let sent = 0
     const errors: string[] = []
     for (const { device_token } of tokens) {
-      try {
-        const res = await fetch(`${apnsHost}/3/device/${device_token}`, {
-          method: 'POST',
-          headers: {
-            'authorization': `bearer ${apnsToken}`,
-            'apns-topic': bundleId,
-            'apns-push-type': 'alert',
-            'apns-priority': '10',
-          },
-          body: JSON.stringify({
-            aps: {
-              alert: { title, body },
-              sound: 'default',
-              badge: 1,
-            },
-            data,
-          }),
-        })
-        if (res.ok) {
-          sent++
-        } else {
-          const errBody = await res.text()
-          errors.push(`${res.status}: ${errBody}`)
-        }
-      } catch (pushErr) {
-        errors.push(`send error: ${pushErr}`)
+      const result = await sendAPNsPush(apnsHost, device_token, apnsToken, bundleId, payload)
+      if (result.ok) {
+        sent++
+      } else {
+        errors.push(`${result.status}: ${result.body}`)
       }
     }
 
@@ -98,7 +125,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error('Push error:', err)
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error', stack: err instanceof Error ? err.stack : undefined },
+      { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }
     )
   }
