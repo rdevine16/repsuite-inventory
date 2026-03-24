@@ -47,6 +47,13 @@ export const COMPONENTS: Record<string, { id: string; label: string; variants: {
         { id: 'asym_pressfit', label: 'Asymmetric Pressfit' },
       ],
     },
+    {
+      id: 'knee_tibial_stem',
+      label: 'Tibial Stem',
+      variants: [
+        { id: 'cemented', label: 'Cemented' },
+      ],
+    },
   ],
   hip: [
     {

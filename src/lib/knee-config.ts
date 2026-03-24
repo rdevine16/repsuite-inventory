@@ -105,6 +105,15 @@ export const KNEE_SECTIONS = [
     variants: ['1', '2', '3', '4', '5', '6', '7', '8'],
     sizes: ['9', '11', '13', '16', '19', '22', '25', '28', '31'],
   },
+  {
+    id: 'knee_tibial_stem',
+    label: 'Tibial Stems',
+    fixationGroups: null,
+    sizeLabel: 'Diameter',
+    rowLabel: 'Length',
+    variants: ['50mm', '100mm'],
+    sizes: ['9', '12', '15'],
+  },
 ] as const
 
 export type KneeSection = (typeof KNEE_SECTIONS)[number]
@@ -156,6 +165,12 @@ export const REF_TO_GRID_MAP = {
     { pattern: /^5531-[GPT]-(\d)(\d{2})/, category: 'knee_poly_cs' },
     { pattern: /^5532-[GPT]-(\d)(\d{2})/, category: 'knee_poly_ps' },
     { pattern: /^5537-[GPT]-(\d)(\d{2})/, category: 'knee_poly_ts' },
+  ],
+
+  // Tibial Stems
+  // 5560-S-{length_group}{diameter}: 1=50mm, 2=100mm; diameter=09,12,15
+  tibial_stem: [
+    { pattern: /^5560-S-(\d)(\d{2})$/, category: 'knee_tibial_stem' },
   ],
 }
 

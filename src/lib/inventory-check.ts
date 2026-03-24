@@ -46,6 +46,16 @@ function getCheckConfig(component: string, variant: string): {
     }
   }
 
+  // Tibial stems: 2D grid like poly — variant=length, size=diameter
+  if (component === 'knee_tibial_stem') {
+    return {
+      category: component,
+      sizes: ['50mm', '100mm'],  // lengths (mapped as variants in grid)
+      isPolyStyle: true,
+      polyThicknesses: ['9', '12', '15'],  // diameters (mapped as sizes in grid)
+    }
+  }
+
   // Patella: sizes depend on variant
   if (component === 'knee_patella') {
     const sizeMap: Record<string, string[]> = {
@@ -83,6 +93,7 @@ function getKitName(component: string, variant: string): string {
     knee_tibia: 'Tibial Tub',
     knee_poly: 'Insert Tub',
     knee_patella: 'Patella Tub',
+    knee_tibial_stem: 'Tibial Stem Tub',
     hip_stem: 'Stem Tub',
     hip_cup: 'Cup Tub',
     hip_liner: 'Liner Tub',
@@ -302,6 +313,72 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     }
   }
 
+  // Catch-all: alert on any implant ref that dropped to zero at a tracked facility
+  for (const facilityId of facilityIds) {
+    // Get all ref numbers that existed before (from case_parts + facility_inventory history)
+    // by checking case_usage_items for this facility's completed cases
+    const { data: usedRefs } = await supabase
+      .from('case_usage_items')
+      .select('catalog_number, cases!inner(facility_id)')
+      .eq('current_status', 'deducted')
+
+    // Get current inventory at this facility
+    const { data: currentInventory } = await supabase
+      .from('facility_inventory')
+      .select('reference_number')
+      .eq('facility_id', facilityId)
+
+    const currentRefs = new Set((currentInventory ?? []).map((i) => i.reference_number).filter(Boolean))
+
+    // Also count loaner kit parts
+    const { data: kitParts } = await supabase
+      .from('case_parts')
+      .select('catalog_number, cases!inner(facility_id)')
+      .eq('is_loaner', true)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kitRefsAtFacility = (kitParts ?? []).filter((p: any) => p.cases?.facility_id === facilityId)
+    for (const kp of kitRefsAtFacility) {
+      if (kp.catalog_number) currentRefs.add(kp.catalog_number)
+    }
+
+    // Find deducted items at this facility that now have zero remaining
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const deductedAtFacility = (usedRefs ?? []).filter((u: any) => u.cases?.facility_id === facilityId)
+    const deductedRefNumbers = new Set(deductedAtFacility.map((u) => u.catalog_number).filter(Boolean))
+
+    const zeroRefs: string[] = []
+    for (const ref of deductedRefNumbers) {
+      if (!currentRefs.has(ref)) {
+        // Check it's an implant (has a dash pattern like 5560-S-112, not a 6-digit instrument code)
+        if (ref.includes('-')) {
+          zeroRefs.push(ref)
+        }
+      }
+    }
+
+    if (zeroRefs.length > 0) {
+      // Check if this is already covered by a preference-based alert
+      const coveredRefs = new Set(alerts.flatMap((a) => a.missing_sizes))
+      const uncoveredZeroRefs = zeroRefs.filter((r) => !coveredRefs.has(r))
+
+      if (uncoveredZeroRefs.length > 0) {
+        alerts.push({
+          facility_id: facilityId,
+          facility_name: facilityMap[facilityId],
+          surgeon_name: '',
+          surgery_date: '',
+          case_id: '',
+          component: 'stockout',
+          variant: 'zero_remaining',
+          missing_sizes: uncoveredZeroRefs.slice(0, 10),
+          on_hand: Object.fromEntries(uncoveredZeroRefs.map((r) => [r, 0])),
+          threshold: Object.fromEntries(uncoveredZeroRefs.map((r) => [r, 1])),
+        })
+      }
+    }
+  }
+
   // Deduplicate alerts by facility + component + variant + missing sizes
   const seenAlertKeys = new Set<string>()
   const dedupedAlerts = alerts.filter((a) => {
@@ -366,9 +443,13 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     cs: 'CS Poly', ps: 'PS Poly', ts: 'TS Poly',
     asym_cemented: 'Asym Patella', sym_cemented: 'Sym Patella',
     asym_pressfit: 'Asym PF Patella',
+    cemented: 'Cemented Tibial Stem',
   }
 
   function formatAlertTitle(a: Alert): string {
+    if (a.component === 'stockout') {
+      return `Stockout: ${a.missing_sizes.length} item${a.missing_sizes.length === 1 ? '' : 's'} at zero`
+    }
     const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
     const variantId = sideMatch ? sideMatch[2] : a.variant
     const name = componentNames[variantId] ?? variantId
@@ -376,6 +457,12 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   }
 
   function formatAlertBody(a: Alert): string {
+    if (a.component === 'stockout') {
+      const lines = a.missing_sizes.slice(0, 5).map((ref) => `${ref} — zero remaining`)
+      if (a.missing_sizes.length > 5) lines.push(`+${a.missing_sizes.length - 5} more`)
+      return lines.join('\n')
+    }
+
     const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
     const side = sideMatch ? sideMatch[1].trim() : ''
     const isPoly = a.component === 'knee_poly'
@@ -410,6 +497,10 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   }
 
   function formatPushBody(a: Alert): string {
+    if (a.component === 'stockout') {
+      return a.missing_sizes.slice(0, 3).join(', ') + ' — zero remaining'
+    }
+
     const sideMatch = a.variant.match(/^(Left |Right )(.+)$/)
     const side = sideMatch ? sideMatch[1].trim() : ''
     const isPoly = a.component === 'knee_poly'

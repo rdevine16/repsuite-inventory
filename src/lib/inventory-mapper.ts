@@ -112,6 +112,17 @@ export function refToGridKey(ref: string): string | null {
       return `${rule.category}|${match[1]}|${parseInt(match[2]).toString()}`
     }
   }
+  // Tibial stems: 5560-S-{length_group}{diameter}
+  // length_group 1=50mm, 2=100mm; variant = length, size = diameter
+  const tibialStemLengths: Record<string, string> = { '1': '50mm', '2': '100mm' }
+  for (const rule of REF_TO_GRID_MAP.tibial_stem) {
+    const match = ref.match(rule.pattern)
+    if (match) {
+      const length = tibialStemLengths[match[1]] ?? match[1]
+      const diameter = parseInt(match[2]).toString()
+      return `${rule.category}|${length}|${diameter}`
+    }
+  }
 
   // === HIP ===
   // Stems
