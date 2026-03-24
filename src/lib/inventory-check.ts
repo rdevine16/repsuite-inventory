@@ -124,20 +124,16 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   const facilityIds = facilities.map((f) => f.id)
   const facilityMap = Object.fromEntries(facilities.map((f) => [f.id, f.name]))
 
-  // Get cases for the next 7 days (Eastern timezone)
+  // Get cases for the next 7 days from NOW (not midnight)
   // Priority tiers: <24hrs = critical, 2-7 days = warning
-  const eastern = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
-  const nowET = eastern.format(new Date())
-  const [emm, edd, eyyyy] = nowET.split('/')
-  const todayDate = new Date(`${eyyyy}-${emm}-${edd}T00:00:00-04:00`)
-  const sevenDaysOut = new Date(todayDate)
-  sevenDaysOut.setDate(sevenDaysOut.getDate() + 7)
+  const now = new Date()
+  const sevenDaysOut = new Date(now.getTime() + 7 * 86400000)
 
   const { data: upcomingCases } = await supabase
     .from('cases')
     .select('id, case_id, facility_id, surgeon_name, surgery_date, procedure_name')
     .in('facility_id', facilityIds)
-    .gte('surgery_date', todayDate.toISOString())
+    .gte('surgery_date', now.toISOString())
     .lt('surgery_date', sevenDaysOut.toISOString())
     .neq('status', 'Completed')
 
