@@ -124,20 +124,21 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
   const facilityIds = facilities.map((f) => f.id)
   const facilityMap = Object.fromEntries(facilities.map((f) => [f.id, f.name]))
 
-  // Get today's and tomorrow's cases (Eastern timezone)
+  // Get cases for the next 7 days (Eastern timezone)
+  // Priority tiers: <24hrs = critical, 2-7 days = warning
   const eastern = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
   const nowET = eastern.format(new Date())
   const [emm, edd, eyyyy] = nowET.split('/')
   const todayDate = new Date(`${eyyyy}-${emm}-${edd}T00:00:00-04:00`)
-  const dayAfterTomorrow = new Date(todayDate)
-  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2)
+  const sevenDaysOut = new Date(todayDate)
+  sevenDaysOut.setDate(sevenDaysOut.getDate() + 7)
 
   const { data: upcomingCases } = await supabase
     .from('cases')
     .select('id, case_id, facility_id, surgeon_name, surgery_date, procedure_name')
     .in('facility_id', facilityIds)
     .gte('surgery_date', todayDate.toISOString())
-    .lt('surgery_date', dayAfterTomorrow.toISOString())
+    .lt('surgery_date', sevenDaysOut.toISOString())
     .neq('status', 'Completed')
 
   if (!upcomingCases || upcomingCases.length === 0) return 0
@@ -177,14 +178,14 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
 
     const onHandCounts = buildOnHandCounts(inventoryItems)
 
-    // Also count loaner kit parts shipped to this facility
-    // Loaner kits stay at the facility even after a case completes — only the
-    // actually-used implants get deducted from facility_inventory. So we count
-    // loaner parts from ALL cases (including completed) as available inventory.
+    // Count loaner kit parts that are physically at the facility
+    // Only count kits with status "Shipped/Ready for Surgery" — requested/assigned
+    // kits haven't left the warehouse yet
     const { data: facilityCaseSfIds } = await supabase
       .from('cases')
       .select('sf_id')
       .eq('facility_id', facilityId)
+      .eq('status', 'Shipped/Ready for Surgery')
 
     const sfIds = facilityCaseSfIds?.map((c) => c.sf_id).filter(Boolean) ?? []
 
