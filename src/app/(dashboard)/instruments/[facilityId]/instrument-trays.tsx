@@ -95,8 +95,8 @@ export default function InstrumentTrays({
     const catTrays = trays.filter((t) => t.category === cat.id)
     return {
       ...cat,
-      trays: catTrays.filter((t) => t.item_type === 'tray').reduce((sum, t) => sum + t.quantity, 0),
-      instruments: catTrays.filter((t) => t.item_type === 'instrument').reduce((sum, t) => sum + t.quantity, 0),
+      trays: catTrays.filter((t) => t.item_type === 'tray').length,
+      instruments: catTrays.filter((t) => t.item_type === 'instrument').length,
       issues: catTrays.filter((t) => t.status !== 'complete').length,
     }
   })
@@ -227,7 +227,6 @@ export default function InstrumentTrays({
                     Item <SortIcon field="item_type" />
                   </th>
                   <th className="text-left py-3 px-4 text-gray-600 font-medium">Config</th>
-                  <th className="text-center py-3 px-4 text-gray-600 font-medium">Qty</th>
                   <th
                     className="text-center py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
                     onClick={() => handleSort('status')}
@@ -253,7 +252,6 @@ export default function InstrumentTrays({
                       <td className="py-3 px-4 font-mono text-xs text-gray-500">{tray.catalog_number ?? '—'}</td>
                       <td className="py-3 px-4 text-xs text-gray-500 capitalize">{tray.item_type}</td>
                       <td className="py-3 px-4 text-xs text-gray-500 capitalize">{tray.tray_type}</td>
-                      <td className="py-3 px-4 text-center text-gray-600">{tray.quantity}</td>
                       <td className="py-3 px-4 text-center">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${statusConfig.color}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`}></span>
@@ -437,34 +435,53 @@ function TrayForm({
     setSaving(true)
     setError(null)
 
-    const payload = {
-      facility_id: facilityId,
-      name: finalName,
-      set_id: setId.trim() || null,
-      catalog_number: catalogNumber.trim() || null,
-      catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
-      category,
-      item_type: itemType,
-      tray_type: trayType,
-      quantity,
-      status,
-      missing_items: missingItems.trim() || null,
-      notes: notes.trim() || null,
-      updated_at: new Date().toISOString(),
-    }
-
-    let result
     if (tray) {
-      result = await supabase.from('instrument_trays').update(payload).eq('id', tray.id)
+      // Editing: update single row
+      const payload = {
+        facility_id: facilityId,
+        name: finalName,
+        set_id: setId.trim() || null,
+        catalog_number: catalogNumber.trim() || null,
+        catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
+        category,
+        item_type: itemType,
+        tray_type: trayType,
+        quantity: 1,
+        status,
+        missing_items: missingItems.trim() || null,
+        notes: notes.trim() || null,
+        updated_at: new Date().toISOString(),
+      }
+      const result = await supabase.from('instrument_trays').update(payload).eq('id', tray.id)
+      if (result.error) {
+        setError(result.error.message)
+        setSaving(false)
+      } else {
+        onSaved()
+      }
     } else {
-      result = await supabase.from('instrument_trays').insert(payload)
-    }
-
-    if (result.error) {
-      setError(result.error.message)
-      setSaving(false)
-    } else {
-      onSaved()
+      // Adding: create N individual rows
+      const rows = Array.from({ length: quantity }, () => ({
+        facility_id: facilityId,
+        name: finalName,
+        set_id: setId.trim() || null,
+        catalog_number: catalogNumber.trim() || null,
+        catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
+        category,
+        item_type: itemType,
+        tray_type: trayType,
+        quantity: 1,
+        status,
+        missing_items: null,
+        notes: null,
+      }))
+      const result = await supabase.from('instrument_trays').insert(rows)
+      if (result.error) {
+        setError(result.error.message)
+        setSaving(false)
+      } else {
+        onSaved()
+      }
     }
   }
 
@@ -634,16 +651,22 @@ function TrayForm({
             </div>
           </>
         )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
-          <input
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
+        {!tray && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">How many to add?</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+            {quantity > 1 && (
+              <p className="text-xs text-gray-400 mt-1">This will create {quantity} individual rows, each editable separately.</p>
+            )}
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
           <select
