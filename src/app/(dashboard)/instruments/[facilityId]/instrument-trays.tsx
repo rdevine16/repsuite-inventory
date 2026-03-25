@@ -33,6 +33,7 @@ interface CatalogItem {
 const CATEGORIES = [
   { id: 'knee', label: 'Knee' },
   { id: 'hip', label: 'Hip' },
+  { id: 'mako', label: 'Mako' },
   { id: 'general', label: 'General' },
 ]
 
@@ -635,6 +636,7 @@ function TrayForm({
               >
                 <option value="knee">Knee</option>
                 <option value="hip">Hip</option>
+                <option value="mako">Mako</option>
                 <option value="general">General</option>
               </select>
             </div>
@@ -646,6 +648,7 @@ function TrayForm({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
               >
                 <option value="standard">Standard</option>
+                <option value="mako">Mako</option>
                 <option value="custom">Custom</option>
               </select>
             </div>

@@ -20,6 +20,7 @@ const CATEGORIES = [
   { id: 'all', label: 'All' },
   { id: 'knee', label: 'Knee' },
   { id: 'hip', label: 'Hip' },
+  { id: 'mako', label: 'Mako' },
   { id: 'general', label: 'General' },
 ]
 
@@ -423,6 +424,7 @@ function CatalogForm({
           >
             <option value="knee">Knee</option>
             <option value="hip">Hip</option>
+            <option value="mako">Mako</option>
             <option value="general">General</option>
           </select>
         </div>
