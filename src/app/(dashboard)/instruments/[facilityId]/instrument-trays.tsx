@@ -36,6 +36,8 @@ const CATEGORIES = [
   { id: 'general', label: 'General' },
 ]
 
+const PAGE_SIZE = 25
+
 const STATUS_CONFIG = {
   complete: { label: 'Complete', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
   usable: { label: 'Usable', color: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
@@ -61,6 +63,7 @@ export default function InstrumentTrays({
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [statusFilter, setStatusFilter] = useState<'all' | 'issues'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const router = useRouter()
   const supabase = createClient()
 
@@ -80,6 +83,13 @@ export default function InstrumentTrays({
 
     return result
   }, [trays, tab, sortField, sortDir, statusFilter])
+
+  const totalPages = Math.ceil(filteredTrays.length / PAGE_SIZE)
+  const paginatedTrays = filteredTrays.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  // Reset to page 1 when filters change
+  const handleTabChange = (newTab: string) => { setTab(newTab); setCurrentPage(1) }
+  const handleStatusFilterChange = (val: 'all' | 'issues') => { setStatusFilter(val); setCurrentPage(1) }
 
   const categoryCounts = CATEGORIES.map((cat) => {
     const catTrays = trays.filter((t) => t.category === cat.id)
@@ -122,7 +132,7 @@ export default function InstrumentTrays({
             {categoryCounts.map((cat) => (
               <button
                 key={cat.id}
-                onClick={() => setTab(cat.id)}
+                onClick={() => handleTabChange(cat.id)}
                 className={`py-3 px-1 border-b-2 font-medium text-sm transition ${
                   tab === cat.id
                     ? 'border-blue-600 text-blue-600'
@@ -146,7 +156,7 @@ export default function InstrumentTrays({
         <div className="flex gap-2">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'all' | 'issues')}
+            onChange={(e) => handleStatusFilterChange(e.target.value as 'all' | 'issues')}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
           >
             <option value="all">All Status</option>
@@ -229,7 +239,7 @@ export default function InstrumentTrays({
                 </tr>
               </thead>
               <tbody>
-                {filteredTrays.map((tray) => {
+                {paginatedTrays.map((tray) => {
                   const statusConfig = STATUS_CONFIG[tray.status as keyof typeof STATUS_CONFIG]
                   return (
                     <tr key={tray.id} className="border-b border-gray-50 hover:bg-gray-50/50">
@@ -279,6 +289,69 @@ export default function InstrumentTrays({
               </tbody>
             </table>
           </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+              <span className="text-sm text-gray-500">
+                Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filteredTrays.length)} of {filteredTrays.length}
+              </span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+                >
+                  ««
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+                >
+                  ‹
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let page: number
+                  if (totalPages <= 5) {
+                    page = i + 1
+                  } else if (currentPage <= 3) {
+                    page = i + 1
+                  } else if (currentPage >= totalPages - 2) {
+                    page = totalPages - 4 + i
+                  } else {
+                    page = currentPage - 2 + i
+                  }
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`px-2.5 py-1 text-xs rounded border ${
+                        page === currentPage
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 bg-white hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+                >
+                  ›
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+                >
+                  »»
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
