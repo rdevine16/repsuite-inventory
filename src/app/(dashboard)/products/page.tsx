@@ -89,17 +89,37 @@ export default async function GroupingsPage() {
 
   const repsuiteKits = (repsuiteSetNames ?? []).map((s) => ({ kit_name: s.set_name }))
 
-  // Instrument catalog data
-  const { data: instrumentCatalog } = await supabase
-    .from('instrument_catalog')
-    .select('*')
-    .order('display_name')
+  // Instrument catalog data (paginate past 1000 default)
+  let allInstruments: any[] = []
+  let instFrom = 0
+  while (true) {
+    const { data: batch } = await supabase
+      .from('instrument_catalog')
+      .select('*')
+      .order('display_name')
+      .range(instFrom, instFrom + 999)
+    if (!batch || batch.length === 0) break
+    allInstruments = allInstruments.concat(batch)
+    if (batch.length < 1000) break
+    instFrom += 1000
+  }
+  const instrumentCatalog = allInstruments
 
-  // Count how many facility trays are linked to each catalog entry
-  const { data: trayCounts } = await supabase
-    .from('instrument_trays')
-    .select('catalog_id')
-    .not('catalog_id', 'is', null)
+  // Count how many facility trays are linked to each catalog entry (paginate)
+  let allTrayCounts: any[] = []
+  let tcFrom = 0
+  while (true) {
+    const { data: batch } = await supabase
+      .from('instrument_trays')
+      .select('catalog_id')
+      .not('catalog_id', 'is', null)
+      .range(tcFrom, tcFrom + 999)
+    if (!batch || batch.length === 0) break
+    allTrayCounts = allTrayCounts.concat(batch)
+    if (batch.length < 1000) break
+    tcFrom += 1000
+  }
+  const trayCounts = allTrayCounts
 
   const catalogUsageCounts: Record<string, number> = {}
   trayCounts?.forEach((t) => {

@@ -14,6 +14,8 @@ interface CatalogItem {
   is_custom: boolean
 }
 
+const PAGE_SIZE = 25
+
 const CATEGORIES = [
   { id: 'all', label: 'All' },
   { id: 'knee', label: 'Knee' },
@@ -35,6 +37,7 @@ export default function InstrumentCatalogManager({
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [mappingFilter, setMappingFilter] = useState<'all' | 'mapped' | 'unmapped'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
   const router = useRouter()
@@ -65,6 +68,12 @@ export default function InstrumentCatalogManager({
 
     return result
   }, [catalogItems, search, categoryFilter, mappingFilter])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginatedItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  // Reset page when filters change
+  useEffect(() => { setCurrentPage(1) }, [search, categoryFilter, mappingFilter])
 
   const mappedCount = catalogItems.filter((item) => item.repsuite_name).length
   const customCount = catalogItems.filter((item) => item.is_custom).length
@@ -177,7 +186,7 @@ export default function InstrumentCatalogManager({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
+              {paginatedItems.map((item) => (
                 <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50 group/row">
                   <td className="py-3 px-4">
                     <span className="font-medium text-gray-900">{item.display_name}</span>
@@ -236,6 +245,69 @@ export default function InstrumentCatalogManager({
             </tbody>
           </table>
         </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+            <span className="text-sm text-gray-500">
+              Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+              >
+                ««
+              </button>
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+              >
+                ‹
+              </button>
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let page: number
+                if (totalPages <= 5) {
+                  page = i + 1
+                } else if (currentPage <= 3) {
+                  page = i + 1
+                } else if (currentPage >= totalPages - 2) {
+                  page = totalPages - 4 + i
+                } else {
+                  page = currentPage - 2 + i
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-2.5 py-1 text-xs rounded border ${
+                      page === currentPage
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 bg-white hover:bg-gray-100'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                )
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+              >
+                ›
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
+              >
+                »»
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
