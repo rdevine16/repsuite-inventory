@@ -39,11 +39,21 @@ export default async function FacilityInstrumentsPage({
   }
   const trays = allTrays
 
-  // Load instrument catalog for the add form dropdown
-  const { data: catalogItems } = await supabase
-    .from('instrument_catalog')
-    .select('id, display_name, repsuite_name, category, item_type, catalog_number, is_custom')
-    .order('display_name')
+  // Load full instrument catalog for the add form dropdown (paginate past 1000)
+  let allCatalog: any[] = []
+  let catFrom = 0
+  while (true) {
+    const { data: batch } = await supabase
+      .from('instrument_catalog')
+      .select('id, display_name, repsuite_name, category, item_type, catalog_number, is_custom')
+      .order('display_name')
+      .range(catFrom, catFrom + 999)
+    if (!batch || batch.length === 0) break
+    allCatalog = allCatalog.concat(batch)
+    if (batch.length < 1000) break
+    catFrom += 1000
+  }
+  const catalogItems = allCatalog
 
   const { data: profile } = await supabase
     .from('profiles')
