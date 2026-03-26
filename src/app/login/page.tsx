@@ -1,59 +1,27 @@
 'use client'
 
-import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-  const [isSignUp, setIsSignUp] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const router = useRouter()
-  const supabase = createClient()
+  const searchParams = useSearchParams()
+  const error = searchParams.get('error')
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleLogin = () => {
     setLoading(true)
-    setError(null)
+    // Redirect to the Heroku OAuth endpoint (same as iOS app)
+    const redirectURI = `${window.location.origin}/auth/callback`
+    const state = crypto.randomUUID().slice(0, 10)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const params = new URLSearchParams({
+      client_id: 'repsuite',
+      response_type: 'code',
+      redirect_uri: redirectURI,
+      state,
     })
 
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.push('/')
-      router.refresh()
-    }
-  }
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-      },
-    })
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      setMessage('Check your email for a confirmation link.')
-      setLoading(false)
-    }
+    window.location.href = `https://syk-product-usage-web-prod.herokuapp.com/__/auth/oauth2?${params}`
   }
 
   return (
@@ -62,9 +30,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900">RepSuite Inventory</h1>
-            <p className="text-gray-500 mt-1">
-              {isSignUp ? 'Create your account' : 'Sign in to your account'}
-            </p>
+            <p className="text-gray-500 mt-1">Sign in with your Stryker account</p>
           </div>
 
           {error && (
@@ -73,82 +39,31 @@ export default function LoginPage() {
             </div>
           )}
 
-          {message && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-              {message}
-            </div>
-          )}
-
-          <form onSubmit={isSignUp ? handleSignUp : handleLogin} className="space-y-4">
-            {isSignUp && (
-              <div>
-                <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
-                </label>
-                <input
-                  id="fullName"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-900"
-                  placeholder="John Doe"
-                  required
-                />
-              </div>
+          <button
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Redirecting...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none">
+                  <rect width="9.5" height="9.5" fill="#f25022"/>
+                  <rect x="11.5" width="9.5" height="9.5" fill="#7fba00"/>
+                  <rect y="11.5" width="9.5" height="9.5" fill="#00a4ef"/>
+                  <rect x="11.5" y="11.5" width="9.5" height="9.5" fill="#ffb900"/>
+                </svg>
+                Sign in with Microsoft
+              </>
             )}
-
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-900"
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-900"
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setIsSignUp(!isSignUp)
-                setError(null)
-                setMessage(null)
-              }}
-              className="text-sm text-blue-600 hover:text-blue-700"
-            >
-              {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-            </button>
-          </div>
+          </button>
         </div>
       </div>
     </div>

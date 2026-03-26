@@ -25,7 +25,7 @@ export default function Nav({ userEmail }: { userEmail: string }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: 'local' })
     router.push('/login')
     router.refresh()
   }

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import UpcomingCases from './upcoming-cases'
 import ReplenishmentProposals from './replenishment-proposals'
 import SyncButton from './sync-button'
+import RealtimeRefresh from './realtime-refresh'
 
 const COMPONENT_NAMES: Record<string, Record<string, string>> = {
   knee_femur: { cr_pressfit: 'CR Pressfit Femur', cr_cemented: 'CR Cemented Femur', ps_pressfit: 'PS Pressfit Femur', ps_cemented: 'PS Cemented Femur', ps_pro_cemented: 'PS Pro Femur' },
@@ -277,6 +278,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <RealtimeRefresh />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
