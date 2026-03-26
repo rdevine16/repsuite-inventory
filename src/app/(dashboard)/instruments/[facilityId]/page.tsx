@@ -45,7 +45,7 @@ export default async function FacilityInstrumentsPage({
   while (true) {
     const { data: batch } = await supabase
       .from('instrument_catalog')
-      .select('id, display_name, repsuite_name, category, item_type, catalog_number, is_custom')
+      .select('id, display_name, repsuite_name, category, subcategory, item_type, catalog_number, is_custom')
       .order('display_name')
       .range(catFrom, catFrom + 999)
     if (!batch || batch.length === 0) break

@@ -11,6 +11,7 @@ interface CatalogItem {
   display_name: string
   repsuite_name: string | null
   category: string
+  subcategory: string
   item_type: string
   catalog_number: string | null
   is_custom: boolean
@@ -23,6 +24,13 @@ const CATEGORIES = [
   { id: 'knee', label: 'Knee' },
   { id: 'hip', label: 'Hip' },
   { id: 'mako', label: 'Mako' },
+  { id: 'general', label: 'General' },
+]
+
+const SUBCATEGORIES = [
+  { id: 'primary', label: 'Primary' },
+  { id: 'revision', label: 'Revision' },
+  { id: 'surgeon_extras', label: 'Surgeon Extras' },
   { id: 'general', label: 'General' },
 ]
 
@@ -254,6 +262,7 @@ export default function InstrumentCatalogManager({
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Display Name</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">RepSuite Name</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Category</th>
+                <th className="text-left py-3 px-4 text-gray-600 font-medium">Subcategory</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Ref #</th>
                 <th className="text-center py-3 px-4 text-gray-600 font-medium">Facilities</th>
                 <th className="text-center py-3 px-4 text-gray-600 font-medium">Type</th>
@@ -285,6 +294,9 @@ export default function InstrumentCatalogManager({
                   </td>
                   <td className="py-3 px-4">
                     <span className="text-xs text-gray-500 capitalize">{item.category}</span>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className="text-xs text-gray-500">{SUBCATEGORIES.find(s => s.id === item.subcategory)?.label ?? item.subcategory}</span>
                   </td>
                   <td className="py-3 px-4">
                     {item.catalog_number ? (
@@ -463,6 +475,7 @@ function CatalogFormContent({
   const [displayName, setDisplayName] = useState(item?.display_name ?? '')
   const [repsuiteName, setRepsuiteName] = useState(item?.repsuite_name ?? '')
   const [category, setCategory] = useState(item?.category ?? 'general')
+  const [subcategory, setSubcategory] = useState(item?.subcategory ?? 'primary')
   const [catalogNumber, setCatalogNumber] = useState(item?.catalog_number ?? '')
   const [isCustom, setIsCustom] = useState(item?.is_custom ?? false)
   const [saving, setSaving] = useState(false)
@@ -484,6 +497,7 @@ function CatalogFormContent({
       display_name: displayName.trim(),
       repsuite_name: repsuiteName.trim() || null,
       category,
+      subcategory,
       item_type: itemType,
       catalog_number: catalogNumber.trim() || null,
       is_custom: isCustom,
@@ -567,6 +581,18 @@ function CatalogFormContent({
             <option value="hip">Hip</option>
             <option value="mako">Mako</option>
             <option value="general">General</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Subcategory</label>
+          <select
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+          >
+            {SUBCATEGORIES.map((sc) => (
+              <option key={sc.id} value={sc.id}>{sc.label}</option>
+            ))}
           </select>
         </div>
         <div>

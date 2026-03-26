@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -12,6 +12,7 @@ interface Tray {
   catalog_number: string | null
   catalog_id: string | null
   category: string
+  subcategory: string
   tray_type: string
   item_type: string
   quantity: number
@@ -25,6 +26,7 @@ interface CatalogItem {
   display_name: string
   repsuite_name: string | null
   category: string
+  subcategory: string
   item_type: string
   catalog_number: string | null
   is_custom: boolean
@@ -34,6 +36,13 @@ const CATEGORIES = [
   { id: 'knee', label: 'Knee' },
   { id: 'hip', label: 'Hip' },
   { id: 'mako', label: 'Mako' },
+  { id: 'general', label: 'General' },
+]
+
+const SUBCATEGORIES = [
+  { id: 'primary', label: 'Primary' },
+  { id: 'revision', label: 'Revision' },
+  { id: 'surgeon_extras', label: 'Surgeon Extras' },
   { id: 'general', label: 'General' },
 ]
 
@@ -84,6 +93,34 @@ export default function InstrumentTrays({
 
     return result
   }, [trays, tab, sortField, sortDir, statusFilter])
+
+  // Group by subcategory for display
+  const groupedTrays = useMemo(() => {
+    const groups: { id: string; label: string; trays: Tray[] }[] = []
+    const subcatOrder = SUBCATEGORIES.map((s) => s.id)
+    const bySubcat: Record<string, Tray[]> = {}
+    filteredTrays.forEach((t) => {
+      const sc = t.subcategory || 'primary'
+      if (!bySubcat[sc]) bySubcat[sc] = []
+      bySubcat[sc].push(t)
+    })
+    subcatOrder.forEach((scId) => {
+      if (bySubcat[scId]?.length) {
+        groups.push({
+          id: scId,
+          label: SUBCATEGORIES.find((s) => s.id === scId)?.label ?? scId,
+          trays: bySubcat[scId],
+        })
+      }
+    })
+    // Any subcategories not in the predefined list
+    Object.keys(bySubcat).forEach((scId) => {
+      if (!subcatOrder.includes(scId)) {
+        groups.push({ id: scId, label: scId, trays: bySubcat[scId] })
+      }
+    })
+    return groups
+  }, [filteredTrays])
 
   const totalPages = Math.ceil(filteredTrays.length / PAGE_SIZE)
   const paginatedTrays = filteredTrays.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
@@ -239,7 +276,17 @@ export default function InstrumentTrays({
                 </tr>
               </thead>
               <tbody>
-                {paginatedTrays.map((tray) => {
+                {groupedTrays.map((group) => (
+                  <React.Fragment key={`group-${group.id}`}>
+                    {groupedTrays.length > 1 && (
+                      <tr>
+                        <td colSpan={canEdit ? 7 : 6} className="py-2 px-4 bg-gray-100/80 border-b border-gray-200">
+                          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{group.label}</span>
+                          <span className="text-xs text-gray-400 ml-2">{group.trays.length}</span>
+                        </td>
+                      </tr>
+                    )}
+                    {group.trays.map((tray) => {
                   const statusConfig = STATUS_CONFIG[tray.status as keyof typeof STATUS_CONFIG]
                   return (
                     <tr key={tray.id} className="border-b border-gray-50 hover:bg-gray-50/50">
@@ -284,7 +331,9 @@ export default function InstrumentTrays({
                       )}
                     </tr>
                   )
-                })}
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
@@ -381,6 +430,7 @@ function TrayForm({
   const [setId, setSetId] = useState(tray?.set_id ?? '')
   const [catalogNumber, setCatalogNumber] = useState(tray?.catalog_number ?? '')
   const [category, setCategory] = useState(tray?.category ?? defaultCategory)
+  const [subcategory, setSubcategory] = useState(tray?.subcategory ?? 'primary')
   const [itemType, setItemType] = useState(tray?.item_type ?? 'tray')
   const [trayType, setTrayType] = useState(tray?.tray_type ?? 'standard')
   const [quantity, setQuantity] = useState(tray?.quantity ?? 1)
@@ -414,6 +464,7 @@ function TrayForm({
     setName(item.display_name)
     setCatalogNumber(item.catalog_number ?? '')
     setCategory(item.category)
+    setSubcategory(item.subcategory ?? 'primary')
     setItemType(item.item_type)
     setTrayType(item.is_custom ? 'custom' : 'standard')
     setCatalogSearch('')
@@ -445,6 +496,7 @@ function TrayForm({
         catalog_number: catalogNumber.trim() || null,
         catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
         category,
+        subcategory,
         item_type: itemType,
         tray_type: trayType,
         quantity: 1,
@@ -469,6 +521,7 @@ function TrayForm({
         catalog_number: catalogNumber.trim() || null,
         catalog_id: mode === 'catalog' ? selectedCatalog?.id ?? null : null,
         category,
+        subcategory,
         item_type: itemType,
         tray_type: trayType,
         quantity: 1,
@@ -638,6 +691,18 @@ function TrayForm({
                 <option value="hip">Hip</option>
                 <option value="mako">Mako</option>
                 <option value="general">General</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Subcategory</label>
+              <select
+                value={subcategory}
+                onChange={(e) => setSubcategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+              >
+                {SUBCATEGORIES.map((sc) => (
+                  <option key={sc.id} value={sc.id}>{sc.label}</option>
+                ))}
               </select>
             </div>
             <div>
