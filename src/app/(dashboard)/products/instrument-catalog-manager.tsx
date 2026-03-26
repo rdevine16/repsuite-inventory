@@ -3,6 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { useToast } from '@/components/toast'
+import { useConfirm } from '@/components/confirm-modal'
 
 interface CatalogItem {
   id: string
@@ -41,7 +43,11 @@ export default function InstrumentCatalogManager({
   const [currentPage, setCurrentPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const router = useRouter()
+  const { toast } = useToast()
+  const { confirm } = useConfirm()
+  const supabase = createClient()
   const canEdit = userRole === 'admin' || userRole === 'manager'
 
   const filtered = useMemo(() => {
@@ -75,6 +81,46 @@ export default function InstrumentCatalogManager({
 
   // Reset page when filters change
   useEffect(() => { setCurrentPage(1) }, [search, categoryFilter, mappingFilter])
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedItems.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(paginatedItems.map((i) => i.id)))
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const count = selectedIds.size
+    const confirmed = await confirm({
+      title: `Delete ${count} ${count === 1 ? 'item' : 'items'}?`,
+      message: `This will permanently remove ${count} ${typeLabel.toLowerCase()} from the catalog. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    })
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('instrument_catalog')
+      .delete()
+      .in('id', Array.from(selectedIds))
+    if (error) {
+      toast(error.message, 'error')
+    } else {
+      toast(`Deleted ${count} ${count === 1 ? 'item' : 'items'}`, 'success')
+      setSelectedIds(new Set())
+      router.refresh()
+    }
+  }
 
   const mappedCount = catalogItems.filter((item) => item.repsuite_name).length
   const customCount = catalogItems.filter((item) => item.is_custom).length
@@ -170,12 +216,41 @@ export default function InstrumentCatalogManager({
         onSaved={() => { setShowForm(false); setEditingItem(null); router.refresh() }}
       />
 
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && canEdit && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+          <span className="text-sm font-medium text-blue-700">{selectedIds.size} selected</span>
+          <button
+            onClick={handleBulkDelete}
+            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700"
+          >
+            Delete Selected
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-medium text-gray-600 hover:bg-white"
+          >
+            Clear Selection
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                {canEdit && (
+                  <th className="py-3 px-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={paginatedItems.length > 0 && selectedIds.size === paginatedItems.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </th>
+                )}
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Display Name</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">RepSuite Name</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Category</th>
@@ -187,7 +262,17 @@ export default function InstrumentCatalogManager({
             </thead>
             <tbody>
               {paginatedItems.map((item) => (
-                <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50 group/row">
+                <tr key={item.id} className={`border-b border-gray-50 hover:bg-gray-50/50 group/row ${selectedIds.has(item.id) ? 'bg-blue-50/50' : ''}`}>
+                  {canEdit && (
+                    <td className="py-3 px-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelect(item.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </td>
+                  )}
                   <td className="py-3 px-4">
                     <span className="font-medium text-gray-900">{item.display_name}</span>
                   </td>
@@ -235,7 +320,7 @@ export default function InstrumentCatalogManager({
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? 7 : 6} className="py-8 text-center text-gray-400">
+                  <td colSpan={canEdit ? 8 : 6} className="py-8 text-center text-gray-400">
                     {catalogItems.length === 0
                       ? `No ${typeLabel.toLowerCase()} in catalog yet. Add your first one to get started.`
                       : `No ${typeLabel.toLowerCase()} match your search.`}
@@ -384,6 +469,8 @@ function CatalogFormContent({
   const [error, setError] = useState<string | null>(null)
 
   const supabase = createClient()
+  const { toast } = useToast()
+  const { confirm: confirmDialog } = useConfirm()
 
   const handleSave = async () => {
     if (!displayName.trim()) {
@@ -414,13 +501,20 @@ function CatalogFormContent({
       setError(result.error.message)
       setSaving(false)
     } else {
+      toast(item ? 'Updated successfully' : 'Added to catalog', 'success')
       onSaved()
     }
   }
 
   const handleDelete = async () => {
     if (!item) return
-    if (!confirm(`Remove "${item.display_name}" from the catalog?`)) return
+    const confirmed = await confirmDialog({
+      title: `Remove ${item.display_name}?`,
+      message: 'This will permanently remove this item from the catalog and unlink it from all facility trays.',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    })
+    if (!confirmed) return
     setSaving(true)
 
     const { error: delError } = await supabase.from('instrument_catalog').delete().eq('id', item.id)
@@ -428,6 +522,7 @@ function CatalogFormContent({
       setError(delError.message)
       setSaving(false)
     } else {
+      toast('Removed from catalog', 'success')
       onSaved()
     }
   }
