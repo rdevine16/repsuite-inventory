@@ -119,7 +119,16 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     .select('id, name')
     .eq('smart_tracking_enabled', true)
 
-  if (!facilities || facilities.length === 0) return 0
+  // Helper: clear all stale alerts when no alerts should exist
+  async function clearAllAlerts() {
+    await supabase.from('inventory_alerts').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    await supabase.from('replenishment_requests').delete().eq('status', 'proposed')
+  }
+
+  if (!facilities || facilities.length === 0) {
+    await clearAllAlerts()
+    return 0
+  }
 
   const facilityIds = facilities.map((f) => f.id)
   const facilityMap = Object.fromEntries(facilities.map((f) => [f.id, f.name]))
@@ -137,7 +146,10 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     .lt('surgery_date', sevenDaysOut.toISOString())
     .neq('status', 'Completed')
 
-  if (!upcomingCases || upcomingCases.length === 0) return 0
+  if (!upcomingCases || upcomingCases.length === 0) {
+    await clearAllAlerts()
+    return 0
+  }
 
   // Get surgeon preferences
   const surgeonNames = [...new Set(upcomingCases.map((c) => c.surgeon_name).filter(Boolean))]
@@ -147,7 +159,10 @@ export async function runInventoryCheck(supabase: SupabaseClient<any, any, any>)
     .in('surgeon_name', surgeonNames)
     .order('priority')
 
-  if (!preferences || preferences.length === 0) return 0
+  if (!preferences || preferences.length === 0) {
+    await clearAllAlerts()
+    return 0
+  }
 
   // Get alert thresholds
   const { data: thresholds } = await supabase
