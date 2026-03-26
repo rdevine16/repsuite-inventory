@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase-server'
-import SurgeonPreferencesManager from './surgeon-preferences-manager'
+import ImplantPlansManager from './implant-plans-manager'
 
 export default async function SurgeonPreferencesPage() {
   const supabase = await createClient()
@@ -27,14 +27,11 @@ export default async function SurgeonPreferencesPage() {
     display_name: surgeonNameMap[name] ?? name.replace(/^\d+ - /, ''),
   })).sort((a, b) => a.display_name.localeCompare(b.display_name))
 
-  // Get existing preferences
-  const { data: preferences } = await supabase
-    .from('surgeon_preferences')
+  // Get existing implant plans
+  const { data: plans } = await supabase
+    .from('surgeon_implant_plans')
     .select('*')
     .order('surgeon_name')
-    .order('procedure_type')
-    .order('component')
-    .order('priority')
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -44,15 +41,15 @@ export default async function SurgeonPreferencesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Surgeon Preferences</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Surgeon Implant Plans</h1>
         <p className="text-gray-500 mt-1">
-          Define each surgeon&apos;s preferred implant systems per component with fallback priorities.
+          Define each surgeon&apos;s implant plans — primary, cemented fallback, and clinical alternate.
         </p>
       </div>
 
-      <SurgeonPreferencesManager
+      <ImplantPlansManager
         surgeons={surgeons}
-        preferences={preferences ?? []}
+        plans={plans ?? []}
         userRole={profile?.role ?? 'viewer'}
       />
     </div>
