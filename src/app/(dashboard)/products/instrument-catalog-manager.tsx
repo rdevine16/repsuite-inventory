@@ -385,8 +385,8 @@ function CatalogForm({
   const typeLabelSingular = itemType === 'tray' ? 'Tray' : 'Instrument'
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">
+    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-6">
+      <h3 className="text-lg font-semibold text-gray-900">
         {item ? `Edit ${typeLabelSingular}` : `Add ${typeLabelSingular} to Catalog`}
       </h3>
 
@@ -476,6 +476,224 @@ function CatalogForm({
           </button>
         )}
       </div>
+
+      {/* Items template editor — only for existing tray catalog entries */}
+      {item && itemType === 'tray' && (
+        <CatalogItemsEditor catalogId={item.id} catalogName={item.display_name} />
+      )}
+    </div>
+  )
+}
+
+interface CatalogItemRow {
+  id: string
+  catalog_id: string
+  name: string
+  catalog_number: string | null
+  quantity_expected: number
+  sort_order: number
+}
+
+function CatalogItemsEditor({ catalogId, catalogName }: { catalogId: string; catalogName: string }) {
+  const [items, setItems] = useState<CatalogItemRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [addName, setAddName] = useState('')
+  const [addRef, setAddRef] = useState('')
+  const [addQty, setAddQty] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editRef, setEditRef] = useState('')
+  const [editQty, setEditQty] = useState(1)
+  const supabase = createClient()
+
+  const loadItems = async () => {
+    const { data } = await supabase
+      .from('instrument_catalog_items')
+      .select('*')
+      .eq('catalog_id', catalogId)
+      .order('sort_order')
+      .order('name')
+    setItems(data ?? [])
+    setLoading(false)
+  }
+
+  useEffect(() => { loadItems() }, [catalogId])
+
+  const handleAdd = async () => {
+    if (!addName.trim()) return
+    setSaving(true)
+    await supabase.from('instrument_catalog_items').insert({
+      catalog_id: catalogId,
+      name: addName.trim(),
+      catalog_number: addRef.trim() || null,
+      quantity_expected: addQty,
+      sort_order: items.length,
+    })
+    setAddName('')
+    setAddRef('')
+    setAddQty(1)
+    setSaving(false)
+    loadItems()
+  }
+
+  const handleDelete = async (id: string) => {
+    await supabase.from('instrument_catalog_items').delete().eq('id', id)
+    loadItems()
+  }
+
+  const startEdit = (item: CatalogItemRow) => {
+    setEditingId(item.id)
+    setEditName(item.name)
+    setEditRef(item.catalog_number ?? '')
+    setEditQty(item.quantity_expected)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editName.trim()) return
+    await supabase.from('instrument_catalog_items').update({
+      name: editName.trim(),
+      catalog_number: editRef.trim() || null,
+      quantity_expected: editQty,
+      updated_at: new Date().toISOString(),
+    }).eq('id', editingId)
+    setEditingId(null)
+    loadItems()
+  }
+
+  return (
+    <div className="border-t border-gray-200 pt-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-semibold text-gray-900">
+          Items in this tray
+          <span className="ml-2 text-xs font-normal text-gray-400">({items.length} items)</span>
+        </h4>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-400">Loading...</p>
+      ) : (
+        <>
+          {items.length > 0 && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="text-left py-2 px-3 text-gray-600 font-medium text-xs">Ref #</th>
+                    <th className="text-left py-2 px-3 text-gray-600 font-medium text-xs">Description</th>
+                    <th className="text-center py-2 px-3 text-gray-600 font-medium text-xs w-16">Exp</th>
+                    <th className="text-right py-2 px-3 text-gray-600 font-medium text-xs w-20"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50 group/item">
+                      {editingId === item.id ? (
+                        <>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={editRef}
+                              onChange={(e) => setEditRef(e.target.value)}
+                              placeholder="Ref #"
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-center">
+                            <input
+                              type="number"
+                              min={1}
+                              value={editQty}
+                              onChange={(e) => setEditQty(parseInt(e.target.value) || 1)}
+                              className="w-12 px-1 py-1 border border-gray-300 rounded text-xs text-center"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 text-right">
+                            <button onClick={handleSaveEdit} className="text-xs text-blue-600 hover:text-blue-800 mr-2">Save</button>
+                            <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="py-2 px-3 font-mono text-xs text-gray-500">{item.catalog_number ?? '—'}</td>
+                          <td className="py-2 px-3 text-gray-700">{item.name}</td>
+                          <td className="py-2 px-3 text-center text-gray-600">{item.quantity_expected}</td>
+                          <td className="py-2 px-3 text-right">
+                            <button
+                              onClick={() => startEdit(item)}
+                              className="opacity-0 group-hover/item:opacity-100 text-xs text-gray-400 hover:text-blue-600 mr-2"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(item.id)}
+                              className="opacity-0 group-hover/item:opacity-100 text-xs text-gray-400 hover:text-red-600"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add new item row */}
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">Description</label>
+              <input
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                placeholder="e.g., 36mm Reamer"
+                className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <div className="w-28">
+              <label className="block text-xs text-gray-500 mb-1">Ref #</label>
+              <input
+                type="text"
+                value={addRef}
+                onChange={(e) => setAddRef(e.target.value)}
+                placeholder="393035"
+                className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <div className="w-16">
+              <label className="block text-xs text-gray-500 mb-1">Qty</label>
+              <input
+                type="number"
+                min={1}
+                value={addQty}
+                onChange={(e) => setAddQty(parseInt(e.target.value) || 1)}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center focus:ring-1 focus:ring-blue-500 outline-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+            </div>
+            <button
+              onClick={handleAdd}
+              disabled={saving || !addName.trim()}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+            >
+              + Add
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
