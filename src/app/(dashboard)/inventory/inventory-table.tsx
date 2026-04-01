@@ -29,7 +29,6 @@ export default function InventoryTable({
   gtinDisplayName: Record<string, string>
 }) {
   const [search, setSearch] = useState('')
-  const [facilityFilter, setFacilityFilter] = useState('all')
   const [sortField, setSortField] = useState<'description' | 'reference_number' | 'expiration_date' | 'added_at'>('added_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
@@ -37,12 +36,6 @@ export default function InventoryTable({
 
   const filteredItems = useMemo(() => {
     let result = items
-
-    if (facilityFilter !== 'all') {
-      result = result.filter(
-        (item) => item.facility_id === facilityFilter
-      )
-    }
 
     if (search) {
       const q = search.toLowerCase()
@@ -64,7 +57,7 @@ export default function InventoryTable({
     })
 
     return result
-  }, [items, search, facilityFilter, sortField, sortDir, gtinDisplayName])
+  }, [items, search, sortField, sortDir, gtinDisplayName])
 
   const totalPages = Math.ceil(filteredItems.length / perPage)
   const paginatedItems = filteredItems.slice((page - 1) * perPage, page * perPage)
@@ -100,7 +93,7 @@ export default function InventoryTable({
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Search */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
@@ -112,16 +105,6 @@ export default function InventoryTable({
               className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
           </div>
-          <select
-            value={facilityFilter}
-            onChange={(e) => { setFacilityFilter(e.target.value); setPage(1) }}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          >
-            <option value="all">All Facilities</option>
-            {facilities.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
         </div>
         <div className="mt-3 flex items-center justify-between text-sm text-gray-500">
           <span>{filteredItems.length} items found</span>
@@ -161,7 +144,6 @@ export default function InventoryTable({
                 >
                   Expiration <SortIcon field="expiration_date" />
                 </th>
-                <th className="text-left py-3 px-4 text-gray-600 font-medium">Facility</th>
                 <th
                   className="text-left py-3 px-4 text-gray-600 font-medium cursor-pointer hover:text-gray-900 select-none"
                   onClick={() => handleSort('added_at')}
@@ -172,7 +154,6 @@ export default function InventoryTable({
             </thead>
             <tbody>
               {paginatedItems.map((item) => {
-                const facilityName = Array.isArray(item.facilities) ? item.facilities[0]?.name : item.facilities?.name
                 return (
                   <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                     <td className="py-2.5 px-4 max-w-xs">
@@ -202,9 +183,6 @@ export default function InventoryTable({
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="py-2.5 px-4 text-gray-600 text-xs">
-                      {facilityName ?? '—'}
-                    </td>
                     <td className="py-2.5 px-4 text-gray-500 text-xs">
                       {new Date(item.added_at).toLocaleDateString('en-US', {
                         month: 'short',
@@ -218,8 +196,8 @@ export default function InventoryTable({
               })}
               {paginatedItems.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-400">
-                    No items found matching your filters.
+                  <td colSpan={5} className="py-8 text-center text-gray-400">
+                    No items found matching your search.
                   </td>
                 </tr>
               )}

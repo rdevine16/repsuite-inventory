@@ -1,20 +1,45 @@
 import { createClient } from '@/lib/supabase-server'
-import InventoryTable from './inventory-table'
+import { Suspense } from 'react'
+import DashboardShell from './dashboard-shell'
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ facility?: string; tab?: string }>
+}) {
+  const params = await searchParams
   const supabase = await createClient()
 
+  // Fetch facilities with smart tracking flag
   const { data: facilities } = await supabase
     .from('facilities')
-    .select('id, name')
+    .select('id, name, address, smart_tracking_enabled')
     .order('name')
 
+  const facilityList = facilities ?? []
+  const selectedFacilityId = params.facility || facilityList[0]?.id || ''
+  const activeTab = params.tab || 'overview'
+
+  // Facility metadata
+  const selectedFacility = facilityList.find((f) => f.id === selectedFacilityId)
+
+  // Last audit date for selected facility
+  const { data: lastSession } = await supabase
+    .from('inventory_sessions')
+    .select('started_at')
+    .eq('facility_id', selectedFacilityId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  // Inventory items for Activity tab (existing table)
   const { data: items } = await supabase
     .from('facility_inventory')
     .select('*, facilities(name)')
+    .eq('facility_id', selectedFacilityId)
     .order('added_at', { ascending: false })
 
-  // Build gtin -> display_name mapping
+  // GTIN display name mapping
   const { data: catalogWithGroups } = await supabase
     .from('product_catalog')
     .select('gtin, product_groups(display_name)')
@@ -31,15 +56,23 @@ export default async function InventoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
-        <p className="text-gray-500 mt-1">View and search all inventory items</p>
+        <h1 className="text-2xl font-bold text-gray-900">Inventory Intelligence</h1>
+        <p className="text-gray-500 mt-1">Facility-scoped inventory dashboard with analytics and audit trail</p>
       </div>
 
-      <InventoryTable
-        items={items ?? []}
-        facilities={facilities ?? []}
-        gtinDisplayName={gtinDisplayName}
-      />
+      <Suspense fallback={<div className="text-sm text-gray-400">Loading dashboard...</div>}>
+        <DashboardShell
+          facilities={facilityList.map((f) => ({ id: f.id, name: f.name }))}
+          selectedFacilityId={selectedFacilityId}
+          activeTab={activeTab}
+          facilityName={selectedFacility?.name ?? ''}
+          facilityAddress={selectedFacility?.address ?? null}
+          smartTracking={selectedFacility?.smart_tracking_enabled ?? false}
+          lastAuditDate={lastSession?.started_at ?? null}
+          inventoryItems={items ?? []}
+          gtinDisplayName={gtinDisplayName}
+        />
+      </Suspense>
     </div>
   )
 }
