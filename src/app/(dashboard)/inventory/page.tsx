@@ -269,14 +269,17 @@ export default async function InventoryPage({
     .gte('surgery_date', now.toISOString())
 
   // === Discrepancy Detection ===
+  // 1. Source conflicts (exclude already resolved)
   const { data: sourceConflicts } = await supabase
     .from('case_usage_items')
     .select('id, catalog_number, part_name, lot_number, source_conflict, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')
     .eq('source_conflict', true)
+    .eq('source_conflict_resolved', false)
     .eq('cases.facility_id', selectedFacilityId)
     .order('created_at', { ascending: false })
     .limit(20)
 
+  // 2. Unmatched deductions (used_items with no case link)
   const { data: unmatchedDeductions } = await supabase
     .from('used_items')
     .select('id, reference_number, description, lot_number, created_at')
@@ -285,6 +288,7 @@ export default async function InventoryPage({
     .order('created_at', { ascending: false })
     .limit(20)
 
+  // 3. Not matched (exclude dismissed)
   const { data: notMatched } = await supabase
     .from('case_usage_items')
     .select('id, catalog_number, part_name, lot_number, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')

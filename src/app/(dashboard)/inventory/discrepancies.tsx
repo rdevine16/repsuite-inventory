@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 export interface Discrepancy {
@@ -14,29 +16,59 @@ export interface Discrepancy {
   created_at: string
 }
 
-const typeConfig: Record<string, { label: string; severity: string; badgeClass: string; explanation: string }> = {
+const typeConfig: Record<string, { label: string; severity: string; badgeClass: string; explanation: string; dismissLabel: string }> = {
   source_conflict: {
     label: 'Source Conflict',
     severity: 'Warning',
     badgeClass: 'bg-amber-100 text-amber-700',
     explanation: 'RepSuite location differs from user-specified facility',
+    dismissLabel: 'Resolve',
   },
   unmatched_deduction: {
     label: 'Unmatched Deduction',
     severity: 'Alert',
     badgeClass: 'bg-red-100 text-red-700',
     explanation: 'Item removed from inventory with no linked case record',
+    dismissLabel: 'Restore to Inventory',
   },
   not_matched: {
     label: 'Not Matched',
     severity: 'Warning',
     badgeClass: 'bg-amber-100 text-amber-700',
     explanation: 'Case usage record exists but no inventory item was deducted',
+    dismissLabel: 'Dismiss',
   },
 }
 
 export default function Discrepancies({ items }: { items: Discrepancy[] }) {
+  const router = useRouter()
+  const [dismissing, setDismissing] = useState<string | null>(null)
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+
   if (items.length === 0) return null
+
+  const visibleItems = items.filter((i) => !dismissed.has(`${i.type}-${i.id}`))
+  if (visibleItems.length === 0) return null
+
+  const handleDismiss = async (item: Discrepancy) => {
+    const key = `${item.type}-${item.id}`
+    setDismissing(key)
+    try {
+      const res = await fetch('/api/dismiss-discrepancy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, type: item.type }),
+      })
+      if (res.ok) {
+        setDismissed((prev) => new Set(prev).add(key))
+        router.refresh()
+      }
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setDismissing(null)
+    }
+  }
 
   return (
     <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
@@ -44,16 +76,18 @@ export default function Discrepancies({ items }: { items: Discrepancy[] }) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-red-900">Discrepancies</span>
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-200 text-red-800">
-            {items.length}
+            {visibleItems.length}
           </span>
         </div>
         <span className="text-xs text-red-700">Requires investigation</span>
       </div>
       <div className="divide-y divide-gray-50">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const config = typeConfig[item.type]
+          const key = `${item.type}-${item.id}`
+          const isDismissing = dismissing === key
           return (
-            <div key={`${item.type}-${item.id}`} className="px-5 py-3 flex items-start gap-4">
+            <div key={key} className="px-5 py-3 flex items-start gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.badgeClass}`}>
@@ -80,14 +114,23 @@ export default function Discrepancies({ items }: { items: Discrepancy[] }) {
                   <p className="text-xs text-gray-500 mt-0.5">Surgeon: {item.surgeon_name}</p>
                 )}
               </div>
-              {item.case_id && (
-                <Link
-                  href={`/cases/${item.case_id}`}
-                  className="text-xs text-blue-600 hover:text-blue-700 font-medium whitespace-nowrap"
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {item.case_id && (
+                  <Link
+                    href={`/cases/${item.case_id}`}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-medium whitespace-nowrap"
+                  >
+                    {item.case_display_id ?? 'View Case'}
+                  </Link>
+                )}
+                <button
+                  onClick={() => handleDismiss(item)}
+                  disabled={isDismissing}
+                  className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                 >
-                  {item.case_display_id ?? 'View Case'}
-                </Link>
-              )}
+                  {isDismissing ? 'Dismissing...' : config.dismissLabel}
+                </button>
+              </div>
             </div>
           )
         })}
