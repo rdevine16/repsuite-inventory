@@ -33,26 +33,19 @@ export default async function InventoryPage({
     .limit(1)
     .maybeSingle()
 
-  // Inventory items for Activity tab (existing table)
+  // Inventory items (used for KPI calculations and legacy table fallback)
   const { data: items } = await supabase
     .from('facility_inventory')
     .select('*, facilities(name)')
     .eq('facility_id', selectedFacilityId)
     .order('added_at', { ascending: false })
 
-  // GTIN display name mapping
-  const { data: catalogWithGroups } = await supabase
-    .from('product_catalog')
-    .select('gtin, product_groups(display_name)')
-
-  const gtinDisplayName: Record<string, string> = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  catalogWithGroups?.forEach((item: any) => {
-    const group = Array.isArray(item.product_groups) ? item.product_groups[0] : item.product_groups
-    if (group?.display_name) {
-      gtinDisplayName[item.gtin] = group.display_name
-    }
-  })
+  // Activity feed from unified view
+  const { data: activityEvents } = await supabase
+    .from('inventory_activity')
+    .select('*')
+    .eq('facility_id', selectedFacilityId)
+    .order('event_at', { ascending: false })
 
   // === KPI Data for Overview Tab ===
   const now = new Date()
@@ -157,9 +150,8 @@ export default async function InventoryPage({
           facilityAddress={selectedFacility?.address ?? null}
           smartTracking={selectedFacility?.smart_tracking_enabled ?? false}
           lastAuditDate={lastSession?.started_at ?? null}
-          inventoryItems={items ?? []}
-          gtinDisplayName={gtinDisplayName}
           overviewData={overviewData}
+          activityEvents={activityEvents ?? []}
         />
       </Suspense>
     </div>

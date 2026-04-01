@@ -2,20 +2,8 @@
 
 import DashboardTabs, { type TabId } from './dashboard-tabs'
 import FacilityHeader from './facility-header'
-import InventoryTable from './inventory-table'
 import OverviewTab, { type OverviewData } from './overview-tab'
-
-interface InventoryItem {
-  id: string
-  facility_id: string
-  gtin: string | null
-  reference_number: string | null
-  description: string | null
-  lot_number: string | null
-  expiration_date: string | null
-  added_at: string
-  facilities: { name: string } | { name: string }[] | null
-}
+import ActivityTab, { type ActivityEvent } from './activity-tab'
 
 interface Facility {
   id: string
@@ -38,9 +26,8 @@ export default function DashboardShell({
   facilityAddress,
   smartTracking,
   lastAuditDate,
-  inventoryItems,
-  gtinDisplayName,
   overviewData,
+  activityEvents,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -49,9 +36,8 @@ export default function DashboardShell({
   facilityAddress: string | null
   smartTracking: boolean
   lastAuditDate: string | null
-  inventoryItems: InventoryItem[]
-  gtinDisplayName: Record<string, string>
   overviewData: OverviewData
+  activityEvents: ActivityEvent[]
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -72,13 +58,7 @@ export default function DashboardShell({
         activeTab={validTab}
         children={{
           overview: <OverviewTab data={overviewData} />,
-          activity: (
-            <InventoryTable
-              items={inventoryItems}
-              facilities={facilities}
-              gtinDisplayName={gtinDisplayName}
-            />
-          ),
+          activity: <ActivityTab events={activityEvents} />,
           expirations: <PlaceholderTab label="Expiration management with urgency tiers and FEFO" />,
           'par-levels': <PlaceholderTab label="Par level compliance with progress bars and gap analysis" />,
           analytics: <PlaceholderTab label="Burn rate analytics with usage trend charts" />,
