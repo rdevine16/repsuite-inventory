@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import KpiCard from './kpi-card'
+import Discrepancies, { type Discrepancy } from './discrepancies'
 
 export interface OverviewData {
   totalOnHand: number
@@ -16,7 +17,7 @@ export interface OverviewData {
   coverageCovered: number
 }
 
-export default function OverviewTab({ data }: { data: OverviewData }) {
+export default function OverviewTab({ data, discrepancies }: { data: OverviewData; discrepancies: Discrepancy[] }) {
   const [period, setPeriod] = useState<'week' | 'month'>('week')
 
   const added = period === 'week' ? data.addedThisWeek : data.addedThisMonth
@@ -108,6 +109,9 @@ export default function OverviewTab({ data }: { data: OverviewData }) {
           color={totalCoverage > 0 ? coverageColor : 'default'}
         />
       </div>
+
+      {/* Discrepancies */}
+      <Discrepancies items={discrepancies} />
     </div>
   )
 }

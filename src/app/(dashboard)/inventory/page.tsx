@@ -172,6 +172,73 @@ export default async function InventoryPage({
     .eq('facility_id', selectedFacilityId)
     .gte('surgery_date', now.toISOString())
 
+  // === Discrepancy Detection ===
+  // 1. Source conflicts
+  const { data: sourceConflicts } = await supabase
+    .from('case_usage_items')
+    .select('id, catalog_number, part_name, lot_number, source_conflict, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')
+    .eq('source_conflict', true)
+    .eq('cases.facility_id', selectedFacilityId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // 2. Unmatched deductions (used_items with no case_usage_item_id)
+  const { data: unmatchedDeductions } = await supabase
+    .from('used_items')
+    .select('id, reference_number, description, lot_number, created_at')
+    .eq('facility_id', selectedFacilityId)
+    .is('case_usage_item_id', null)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // 3. Not matched (case_usage_items where status = not_matched)
+  const { data: notMatched } = await supabase
+    .from('case_usage_items')
+    .select('id, catalog_number, part_name, lot_number, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')
+    .eq('current_status', 'not_matched')
+    .eq('cases.facility_id', selectedFacilityId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const discrepancies = [
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(sourceConflicts ?? []).map((sc: any) => ({
+      id: sc.id,
+      type: 'source_conflict' as const,
+      description: sc.part_name,
+      reference_number: sc.catalog_number,
+      lot_number: sc.lot_number,
+      case_id: sc.cases?.id ?? null,
+      case_display_id: sc.cases?.case_id ?? null,
+      surgeon_name: sc.cases?.surgeon_name ?? null,
+      created_at: sc.created_at,
+    })),
+    ...(unmatchedDeductions ?? []).map((ud) => ({
+      id: ud.id,
+      type: 'unmatched_deduction' as const,
+      description: ud.description,
+      reference_number: ud.reference_number,
+      lot_number: ud.lot_number,
+      case_id: null,
+      case_display_id: null,
+      surgeon_name: null,
+      created_at: ud.created_at,
+    })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...(notMatched ?? []).map((nm: any) => ({
+      id: nm.id,
+      type: 'not_matched' as const,
+      description: nm.part_name,
+      reference_number: nm.catalog_number,
+      lot_number: nm.lot_number,
+      case_id: nm.cases?.id ?? null,
+      case_display_id: nm.cases?.case_id ?? null,
+      surgeon_name: nm.cases?.surgeon_name ?? null,
+      created_at: nm.created_at,
+    })),
+  ].sort((a, b) => b.created_at.localeCompare(a.created_at))
+
   const overviewData: OverviewData = {
     totalOnHand,
     addedThisWeek,
@@ -220,6 +287,7 @@ export default async function InventoryPage({
             totalOnHand,
             upcomingCaseCount: upcomingCaseCount ?? 0,
           }}
+          discrepancies={discrepancies}
         />
       </Suspense>
     </div>

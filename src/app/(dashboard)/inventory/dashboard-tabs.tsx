@@ -23,11 +23,13 @@ export default function DashboardTabs({
   facilities,
   selectedFacility,
   activeTab,
+  badges,
   children,
 }: {
   facilities: Facility[]
   selectedFacility: string
   activeTab: TabId
+  badges?: Partial<Record<TabId, number>>
   children: Record<TabId, ReactNode>
 }) {
   const router = useRouter()
@@ -60,19 +62,27 @@ export default function DashboardTabs({
       {/* Tab navigation */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Dashboard tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => updateParams({ tab: tab.id })}
-              className={`whitespace-nowrap pb-3 px-1 text-sm font-medium border-b-2 transition ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {TABS.map((tab) => {
+            const badgeCount = badges?.[tab.id]
+            return (
+              <button
+                key={tab.id}
+                onClick={() => updateParams({ tab: tab.id })}
+                className={`whitespace-nowrap pb-3 px-1 text-sm font-medium border-b-2 transition flex items-center gap-1.5 ${
+                  activeTab === tab.id
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {tab.label}
+                {badgeCount != null && badgeCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">
+                    {badgeCount}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </nav>
       </div>
 

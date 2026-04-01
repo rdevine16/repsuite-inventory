@@ -7,6 +7,7 @@ import ActivityTab, { type ActivityEvent } from './activity-tab'
 import ExpirationsTab, { type InventoryItemForExpiration } from './expirations-tab'
 import ParLevelsTab, { type ParLevelEntry, type ReplenishmentRequest } from './par-levels-tab'
 import AnalyticsTab, { type AnalyticsData } from './analytics-tab'
+import { type Discrepancy } from './discrepancies'
 
 interface Facility {
   id: string
@@ -37,6 +38,7 @@ export default function DashboardShell({
   onHandMap,
   replenishments,
   analyticsData,
+  discrepancies,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -53,6 +55,7 @@ export default function DashboardShell({
   onHandMap: Record<string, number>
   replenishments: ReplenishmentRequest[]
   analyticsData: AnalyticsData
+  discrepancies: Discrepancy[]
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -71,8 +74,9 @@ export default function DashboardShell({
         facilities={facilities}
         selectedFacility={selectedFacilityId}
         activeTab={validTab}
+        badges={discrepancies.length > 0 ? { overview: discrepancies.length } : undefined}
         children={{
-          overview: <OverviewTab data={overviewData} />,
+          overview: <OverviewTab data={overviewData} discrepancies={discrepancies} />,
           activity: <ActivityTab events={activityEvents} />,
           expirations: <ExpirationsTab items={expirationItems} upcomingRefNumbers={upcomingRefNumbers} />,
           'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} />,
