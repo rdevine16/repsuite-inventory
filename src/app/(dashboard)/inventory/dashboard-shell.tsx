@@ -8,18 +8,11 @@ import ExpirationsTab, { type InventoryItemForExpiration } from './expirations-t
 import ParLevelsTab, { type ParLevelEntry, type ReplenishmentRequest } from './par-levels-tab'
 import AnalyticsTab, { type AnalyticsData } from './analytics-tab'
 import { type Discrepancy } from './discrepancies'
+import AuditTab, { type AuditSession } from './audit-tab'
 
 interface Facility {
   id: string
   name: string
-}
-
-function PlaceholderTab({ label }: { label: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-      <p className="text-gray-400 text-sm">{label} — coming soon</p>
-    </div>
-  )
 }
 
 export default function DashboardShell({
@@ -39,6 +32,7 @@ export default function DashboardShell({
   replenishments,
   analyticsData,
   discrepancies,
+  auditSessions,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -56,6 +50,7 @@ export default function DashboardShell({
   replenishments: ReplenishmentRequest[]
   analyticsData: AnalyticsData
   discrepancies: Discrepancy[]
+  auditSessions: AuditSession[]
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -81,7 +76,7 @@ export default function DashboardShell({
           expirations: <ExpirationsTab items={expirationItems} upcomingRefNumbers={upcomingRefNumbers} />,
           'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} />,
           analytics: <AnalyticsTab data={analyticsData} />,
-          audit: <PlaceholderTab label="Audit trail with session history and CSV export" />,
+          audit: <AuditTab sessions={auditSessions} activityEvents={activityEvents} facilityName={facilityName} />,
         }}
       />
     </>

@@ -24,14 +24,12 @@ export default async function InventoryPage({
   // Facility metadata
   const selectedFacility = facilityList.find((f) => f.id === selectedFacilityId)
 
-  // Last audit date for selected facility
-  const { data: lastSession } = await supabase
+  // Audit sessions for selected facility
+  const { data: auditSessions } = await supabase
     .from('inventory_sessions')
-    .select('started_at')
+    .select('id, facility_id, started_at, completed_at, user_id')
     .eq('facility_id', selectedFacilityId)
     .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   // Inventory items (used for KPI calculations and legacy table fallback)
   const { data: items } = await supabase
@@ -267,7 +265,7 @@ export default async function InventoryPage({
           facilityName={selectedFacility?.name ?? ''}
           facilityAddress={selectedFacility?.address ?? null}
           smartTracking={selectedFacility?.smart_tracking_enabled ?? false}
-          lastAuditDate={lastSession?.started_at ?? null}
+          lastAuditDate={auditSessions?.[0]?.started_at ?? null}
           overviewData={overviewData}
           activityEvents={activityEvents ?? []}
           expirationItems={(items ?? []).map((i) => ({
@@ -288,6 +286,7 @@ export default async function InventoryPage({
             upcomingCaseCount: upcomingCaseCount ?? 0,
           }}
           discrepancies={discrepancies}
+          auditSessions={auditSessions ?? []}
         />
       </Suspense>
     </div>
