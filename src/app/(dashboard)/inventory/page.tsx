@@ -135,6 +135,26 @@ export default async function InventoryPage({
     if (u.catalog_number) upcomingRefNumbers.push(u.catalog_number)
   })
 
+  // === Par Level Data ===
+  const { data: parLevels } = await supabase
+    .from('component_par_levels')
+    .select('category, variant, size, par_quantity')
+    .eq('facility_id', selectedFacilityId)
+
+  // Build on-hand counts using inventory mapper
+  const { buildOnHandCounts } = await import('@/lib/inventory-mapper')
+  const onHandMap = buildOnHandCounts(
+    (items ?? []).map((i) => ({ gtin: i.gtin, reference_number: i.reference_number }))
+  )
+
+  // Pending replenishment requests
+  const { data: replenishments } = await supabase
+    .from('replenishment_requests')
+    .select('id, component, variant, kit_template_name, missing_sizes, status, surgeon_name, surgery_date, case_id')
+    .eq('facility_id', selectedFacilityId)
+    .in('status', ['proposed', 'approved'])
+    .order('surgery_date', { ascending: true })
+
   const overviewData: OverviewData = {
     totalOnHand,
     addedThisWeek,
@@ -175,6 +195,9 @@ export default async function InventoryPage({
             gtin: i.gtin,
           }))}
           upcomingRefNumbers={upcomingRefNumbers}
+          parLevels={parLevels ?? []}
+          onHandMap={onHandMap}
+          replenishments={replenishments ?? []}
         />
       </Suspense>
     </div>
