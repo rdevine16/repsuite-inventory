@@ -384,35 +384,63 @@ The rep can then decide: "I'll send 6 total — 3 for S3 + 3 buffer for cementin
 
 ## 6. Data Model
 
-### New Table: `surgeon_implant_plans`
+### Plans Are Reusable Templates Assigned to Cases
 
-Replaces the flat `surgeon_preferences` table.
+A surgeon can have **multiple named plans**. Each plan is a complete template containing
+primary components, cemented fallback, and optionally a clinical alternate — all in one row.
+
+Cases get assigned a specific plan. This lets the rep say "this case is CR Pressfit" and
+"this other case is PS Pro" for the same surgeon. The coverage engine reads the plan from
+each case, not from a global surgeon preference.
+
+### Table: `surgeon_implant_plans`
 
 ```sql
 CREATE TABLE surgeon_implant_plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   surgeon_name TEXT NOT NULL,
-  procedure_type TEXT NOT NULL,        -- 'knee', 'hip', 'mako_tka', etc.
-  plan_type TEXT NOT NULL,             -- 'primary', 'cemented_fallback', 'clinical_alternate'
-  plan_label TEXT,                     -- Display name: "CR Pressfit", "PS Backup", etc.
-  conversion_likelihood TEXT,          -- NULL for primary, 'low'/'medium'/'high' for alternates
-  femur_variant TEXT,                  -- e.g., 'cr_pressfit', 'ps_cemented'
-  tibia_variant TEXT,                  -- e.g., 'tritanium', 'universal', 'primary'
-  patella_variant TEXT,                -- e.g., 'asym_pressfit', 'sym_cemented'
-  poly_variants TEXT[],                -- Array: ['cs'] or ['ps', 'ts']
-  notes TEXT,                          -- Free text for special instructions
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
+  plan_name TEXT NOT NULL,                -- "CR Pressfit Knee", "PS Pro Knee"
+  procedure_type TEXT NOT NULL,           -- 'knee' or 'hip'
+  is_default BOOLEAN DEFAULT false,       -- Auto-assign to new cases
 
-  UNIQUE(surgeon_name, procedure_type, plan_type)
+  -- Primary plan components
+  femur_variant TEXT,
+  tibia_variant TEXT,
+  patella_variant TEXT,
+  poly_variants TEXT[] DEFAULT '{}',
+
+  -- Cemented fallback (1:1 with primary)
+  cemented_femur_variant TEXT,
+  cemented_tibia_variant TEXT,
+  cemented_patella_variant TEXT,
+
+  -- Clinical alternate
+  has_clinical_alternate BOOLEAN DEFAULT false,
+  alt_femur_variant TEXT,
+  alt_tibia_variant TEXT,
+  alt_patella_variant TEXT,
+  alt_poly_variants TEXT[] DEFAULT '{}',
+  alt_conversion_likelihood TEXT,         -- 'low'/'medium'/'high'
+
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
-**Constraints:**
-- Each surgeon + procedure type has at most 1 primary, 1 cemented_fallback, and 1 clinical_alternate
-- Primary is required. Cemented fallback and clinical alternate are optional.
-- `conversion_likelihood` is required for clinical_alternate, NULL for others
-- `poly_variants` is an array because PS femurs can use either PS or TS polys
+### Case Assignment
+
+The `cases` table has a `plan_id` column referencing `surgeon_implant_plans.id`.
+
+- If a case has `plan_id` set, the coverage engine uses that plan
+- If `plan_id` is NULL, the engine falls back to the surgeon's default plan (where `is_default = true` for that surgeon + procedure type)
+- If no default exists, the case shows as "No plan" in the coverage audit
+
+### Key Differences from Previous Model
+- Plans are NOT locked to one-per-surgeon-per-procedure — a surgeon can have many plans
+- Each plan contains primary + cemented + clinical alt in ONE row (not separate rows)
+- Cases reference a specific plan, allowing per-case control
+- `is_default` flag lets new cases auto-assign without manual intervention
 
 ### Procedure Type Normalization
 

@@ -98,10 +98,16 @@ export default async function DashboardPage() {
 
   const { data: upcomingCases } = await supabase
     .from('cases')
-    .select('id, case_id, surgeon_name, procedure_name, surgery_date, hospital_name, side, status, facility_id, facilities(name)')
+    .select('id, case_id, surgeon_name, procedure_name, surgery_date, hospital_name, side, status, facility_id, plan_id, facilities(name)')
     .gte('surgery_date', todayStart.toISOString())
     .lt('surgery_date', threeDaysOut.toISOString())
     .order('surgery_date')
+
+  // Get all implant plans for plan assignment dropdowns
+  const { data: allPlans } = await supabase
+    .from('surgeon_implant_plans')
+    .select('id, surgeon_name, plan_name, procedure_type, is_default')
+    .order('surgeon_name')
 
   // Get tomorrow's cases for facility summary
   const tomorrowStart = new Date(todayStart)
@@ -197,9 +203,10 @@ export default async function DashboardPage() {
 
   tomorrowFacilities.sort((a, b) => b.totalCases - a.totalCases)
 
-  // Apply surgeon mappings to cases
+  // Apply surgeon mappings to cases — keep raw name for plan matching
   const mappedCases = (upcomingCases ?? []).map((c) => ({
     ...c,
+    raw_surgeon_name: c.surgeon_name,
     surgeon_name: surgeonNameMap[c.surgeon_name ?? ''] ?? c.surgeon_name?.replace(/^\d+ - /, '') ?? null,
   }))
 
@@ -631,7 +638,7 @@ export default async function DashboardPage() {
       )}
 
       {/* Upcoming Cases */}
-      <UpcomingCases cases={mappedCases} />
+      <UpcomingCases cases={mappedCases} plans={allPlans ?? []} />
     </div>
   )
 }

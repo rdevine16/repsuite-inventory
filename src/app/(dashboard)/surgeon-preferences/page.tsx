@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase-server'
 import ImplantPlansManager from './implant-plans-manager'
+import type { ImplantPlanTemplate } from '@/lib/plan-config'
 
 export default async function SurgeonPreferencesPage() {
   const supabase = await createClient()
 
-  // Get surgeons from mappings + cases
   const { data: surgeonMappings } = await supabase
     .from('surgeon_mappings')
     .select('repsuite_name, display_name')
@@ -27,7 +27,6 @@ export default async function SurgeonPreferencesPage() {
     display_name: surgeonNameMap[name] ?? name.replace(/^\d+ - /, ''),
   })).sort((a, b) => a.display_name.localeCompare(b.display_name))
 
-  // Get existing implant plans
   const { data: plans } = await supabase
     .from('surgeon_implant_plans')
     .select('*')
@@ -43,13 +42,13 @@ export default async function SurgeonPreferencesPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Surgeon Implant Plans</h1>
         <p className="text-gray-500 mt-1">
-          Define each surgeon&apos;s implant plans — primary, cemented fallback, and clinical alternate.
+          Create named implant plans for each surgeon. Plans are assigned to individual cases for coverage tracking.
         </p>
       </div>
 
       <ImplantPlansManager
         surgeons={surgeons}
-        plans={plans ?? []}
+        plans={(plans ?? []) as ImplantPlanTemplate[]}
         userRole={profile?.role ?? 'viewer'}
       />
     </div>

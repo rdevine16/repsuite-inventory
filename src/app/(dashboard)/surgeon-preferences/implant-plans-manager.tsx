@@ -4,32 +4,36 @@ import { useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
-  PLAN_TYPES,
   CONVERSION_LIKELIHOODS,
   KNEE_PLAN_OPTIONS,
   HIP_PLAN_OPTIONS,
   COMPONENT_LABELS,
   getVariantLabel,
 } from '@/lib/plan-config'
-import type { PlanType, ConversionLikelihood } from '@/lib/plan-config'
+import type { ImplantPlanTemplate, ConversionLikelihood } from '@/lib/plan-config'
 
 interface Surgeon {
   repsuite_name: string
   display_name: string
 }
 
-interface ImplantPlan {
-  id: string
-  surgeon_name: string
-  procedure_type: string
-  plan_type: string
-  plan_label: string | null
-  conversion_likelihood: string | null
-  femur_variant: string | null
-  tibia_variant: string | null
-  patella_variant: string | null
-  poly_variants: string[] | null
-  notes: string | null
+type VariantOption = { id: string; label: string }
+
+function getComponentConfig(procedureType: string): { key: string; label: string; options: VariantOption[] }[] {
+  if (procedureType === 'hip') {
+    return [
+      { key: 'stem', label: 'Stem', options: HIP_PLAN_OPTIONS.stem },
+      { key: 'cup', label: 'Cup', options: HIP_PLAN_OPTIONS.cup },
+      { key: 'liner', label: 'Liner', options: HIP_PLAN_OPTIONS.liner },
+      { key: 'head', label: 'Head', options: HIP_PLAN_OPTIONS.head },
+    ]
+  }
+  return [
+    { key: 'femur', label: 'Femur', options: KNEE_PLAN_OPTIONS.femur },
+    { key: 'tibia', label: 'Tibia', options: KNEE_PLAN_OPTIONS.tibia },
+    { key: 'patella', label: 'Patella', options: KNEE_PLAN_OPTIONS.patella },
+    { key: 'poly', label: 'Poly', options: KNEE_PLAN_OPTIONS.poly },
+  ]
 }
 
 const PROCEDURE_TYPES = [
@@ -37,86 +41,35 @@ const PROCEDURE_TYPES = [
   { id: 'hip', label: 'Hip' },
 ]
 
-type VariantOption = { id: string; label: string }
-
-function getComponentConfig(procedureType: string): { key: string; options: VariantOption[] }[] {
-  if (procedureType === 'hip') {
-    return [
-      { key: 'stem', options: HIP_PLAN_OPTIONS.stem },
-      { key: 'cup', options: HIP_PLAN_OPTIONS.cup },
-      { key: 'liner', options: HIP_PLAN_OPTIONS.liner },
-      { key: 'head', options: HIP_PLAN_OPTIONS.head },
-    ]
-  }
-  return [
-    { key: 'femur', options: KNEE_PLAN_OPTIONS.femur },
-    { key: 'tibia', options: KNEE_PLAN_OPTIONS.tibia },
-    { key: 'patella', options: KNEE_PLAN_OPTIONS.patella },
-    { key: 'poly', options: KNEE_PLAN_OPTIONS.poly },
-  ]
-}
-
-// Map plan component keys to DB field names
-function getDbField(procedureType: string, componentKey: string): string {
-  if (procedureType === 'hip') {
-    const map: Record<string, string> = { stem: 'femur_variant', cup: 'tibia_variant', liner: 'patella_variant', head: 'poly_variants' }
-    return map[componentKey] ?? componentKey
-  }
-  return `${componentKey}_variant`
-}
-
-function getDbValue(plan: ImplantPlan, procedureType: string, componentKey: string): string | null {
-  if (procedureType === 'hip') {
-    const map: Record<string, keyof ImplantPlan> = {
-      stem: 'femur_variant',
-      cup: 'tibia_variant',
-      liner: 'patella_variant',
-      head: 'poly_variants',
-    }
-    const field = map[componentKey]
-    if (componentKey === 'head') {
-      const arr = plan.poly_variants
-      return arr && arr.length > 0 ? arr[0] : null
-    }
-    return plan[field] as string | null
-  }
-  if (componentKey === 'poly') {
-    return plan.poly_variants && plan.poly_variants.length > 0 ? plan.poly_variants.join(', ') : null
-  }
-  const field = `${componentKey}_variant` as keyof ImplantPlan
-  return plan[field] as string | null
-}
-
 export default function ImplantPlansManager({
   surgeons,
   plans,
   userRole,
 }: {
   surgeons: Surgeon[]
-  plans: ImplantPlan[]
+  plans: ImplantPlanTemplate[]
   userRole: string
 }) {
   const [selectedSurgeon, setSelectedSurgeon] = useState<string | null>(null)
   const [selectedProcedure, setSelectedProcedure] = useState('knee')
   const [surgeonSearch, setSurgeonSearch] = useState('')
-  const [editingPlan, setEditingPlan] = useState<PlanType | null>(null)
+  const [editing, setEditing] = useState<ImplantPlanTemplate | 'new' | null>(null)
   const [saving, setSaving] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const canEdit = userRole === 'admin' || userRole === 'manager'
 
-  // Form state for editing
-  const [formFemur, setFormFemur] = useState('')
-  const [formTibia, setFormTibia] = useState('')
-  const [formPatella, setFormPatella] = useState('')
-  const [formPoly, setFormPoly] = useState<string[]>([])
-  const [formLikelihood, setFormLikelihood] = useState<ConversionLikelihood>('low')
-  const [formLabel, setFormLabel] = useState('')
-  const [formNotes, setFormNotes] = useState('')
-
-  const configuredSet = useMemo(() => {
-    return new Set(plans.map((p) => p.surgeon_name))
-  }, [plans])
+  // Form state
+  const [form, setForm] = useState({
+    plan_name: '',
+    is_default: false,
+    femur: '', tibia: '', patella: '', poly: [] as string[],
+    cem_femur: '', cem_tibia: '', cem_patella: '',
+    has_alt: false,
+    alt_femur: '', alt_tibia: '', alt_patella: '', alt_poly: [] as string[],
+    alt_likelihood: 'low' as ConversionLikelihood,
+    notes: '',
+  })
 
   const filteredSurgeons = useMemo(() => {
     if (!surgeonSearch) return surgeons
@@ -124,100 +77,123 @@ export default function ImplantPlansManager({
     return surgeons.filter((s) => s.display_name.toLowerCase().includes(q))
   }, [surgeons, surgeonSearch])
 
-  // Plans for selected surgeon + procedure
   const surgeonPlans = useMemo(() => {
     if (!selectedSurgeon) return []
     return plans
       .filter((p) => p.surgeon_name === selectedSurgeon && p.procedure_type === selectedProcedure)
       .sort((a, b) => {
-        const order: Record<string, number> = { primary: 0, cemented_fallback: 1, clinical_alternate: 2 }
-        return (order[a.plan_type] ?? 9) - (order[b.plan_type] ?? 9)
+        if (a.is_default && !b.is_default) return -1
+        if (!a.is_default && b.is_default) return 1
+        return a.plan_name.localeCompare(b.plan_name)
       })
   }, [plans, selectedSurgeon, selectedProcedure])
 
-  const planCount = (surgeonName: string) => {
-    return plans.filter((p) => p.surgeon_name === surgeonName && p.procedure_type === selectedProcedure).length
+  const planCount = (surgeonName: string) =>
+    plans.filter((p) => p.surgeon_name === surgeonName).length
+
+  const configuredSet = useMemo(() => new Set(plans.map((p) => p.surgeon_name)), [plans])
+
+  const startNew = () => {
+    const config = getComponentConfig(selectedProcedure)
+    setForm({
+      plan_name: '',
+      is_default: surgeonPlans.length === 0,
+      femur: config[0]?.options[0]?.id ?? '',
+      tibia: config[1]?.options[0]?.id ?? '',
+      patella: config[2]?.options[0]?.id ?? '',
+      poly: [config[3]?.options[0]?.id ?? ''],
+      cem_femur: '', cem_tibia: '', cem_patella: '',
+      has_alt: false,
+      alt_femur: '', alt_tibia: '', alt_patella: '', alt_poly: [],
+      alt_likelihood: 'low',
+      notes: '',
+    })
+    setEditing('new')
   }
 
-  const existingPlanTypes = new Set(surgeonPlans.map((p) => p.plan_type))
-
-  const startEditing = (planType: PlanType, existingPlan?: ImplantPlan) => {
-    const config = getComponentConfig(selectedProcedure)
-
-    if (existingPlan) {
-      setFormFemur(existingPlan.femur_variant ?? '')
-      setFormTibia(existingPlan.tibia_variant ?? '')
-      setFormPatella(existingPlan.patella_variant ?? '')
-      setFormPoly(existingPlan.poly_variants ?? [])
-      setFormLikelihood((existingPlan.conversion_likelihood as ConversionLikelihood) ?? 'low')
-      setFormLabel(existingPlan.plan_label ?? '')
-      setFormNotes(existingPlan.notes ?? '')
-    } else {
-      setFormFemur(config[0]?.options[0]?.id ?? '')
-      setFormTibia(config[1]?.options[0]?.id ?? '')
-      setFormPatella(config[2]?.options[0]?.id ?? '')
-      setFormPoly([config[3]?.options[0]?.id ?? ''])
-      setFormLikelihood('low')
-      setFormLabel('')
-      setFormNotes('')
-    }
-    setEditingPlan(planType)
+  const startEditing = (plan: ImplantPlanTemplate) => {
+    setForm({
+      plan_name: plan.plan_name,
+      is_default: plan.is_default,
+      femur: plan.femur_variant ?? '',
+      tibia: plan.tibia_variant ?? '',
+      patella: plan.patella_variant ?? '',
+      poly: plan.poly_variants ?? [],
+      cem_femur: plan.cemented_femur_variant ?? '',
+      cem_tibia: plan.cemented_tibia_variant ?? '',
+      cem_patella: plan.cemented_patella_variant ?? '',
+      has_alt: plan.has_clinical_alternate,
+      alt_femur: plan.alt_femur_variant ?? '',
+      alt_tibia: plan.alt_tibia_variant ?? '',
+      alt_patella: plan.alt_patella_variant ?? '',
+      alt_poly: plan.alt_poly_variants ?? [],
+      alt_likelihood: plan.alt_conversion_likelihood ?? 'low',
+      notes: plan.notes ?? '',
+    })
+    setEditing(plan)
   }
 
   const savePlan = async () => {
-    if (!selectedSurgeon || !editingPlan) return
+    if (!selectedSurgeon || !editing) return
     setSaving(true)
 
-    const existing = surgeonPlans.find((p) => p.plan_type === editingPlan)
     const data = {
       surgeon_name: selectedSurgeon,
+      plan_name: form.plan_name || 'Untitled Plan',
       procedure_type: selectedProcedure,
-      plan_type: editingPlan,
-      plan_label: formLabel || null,
-      conversion_likelihood: editingPlan === 'clinical_alternate' ? formLikelihood : null,
-      femur_variant: formFemur || null,
-      tibia_variant: formTibia || null,
-      patella_variant: formPatella || null,
-      poly_variants: formPoly.filter(Boolean),
-      notes: formNotes || null,
+      is_default: form.is_default,
+      femur_variant: form.femur || null,
+      tibia_variant: form.tibia || null,
+      patella_variant: form.patella || null,
+      poly_variants: form.poly.filter(Boolean),
+      cemented_femur_variant: form.cem_femur || null,
+      cemented_tibia_variant: form.cem_tibia || null,
+      cemented_patella_variant: form.cem_patella || null,
+      has_clinical_alternate: form.has_alt,
+      alt_femur_variant: form.has_alt ? (form.alt_femur || null) : null,
+      alt_tibia_variant: form.has_alt ? (form.alt_tibia || null) : null,
+      alt_patella_variant: form.has_alt ? (form.alt_patella || null) : null,
+      alt_poly_variants: form.has_alt ? form.alt_poly.filter(Boolean) : [],
+      alt_conversion_likelihood: form.has_alt ? form.alt_likelihood : null,
+      notes: form.notes || null,
       updated_at: new Date().toISOString(),
     }
 
-    if (existing) {
-      await supabase.from('surgeon_implant_plans').update(data).eq('id', existing.id)
-    } else {
-      await supabase.from('surgeon_implant_plans').insert(data)
+    // If setting as default, unset others
+    if (form.is_default) {
+      await supabase
+        .from('surgeon_implant_plans')
+        .update({ is_default: false })
+        .eq('surgeon_name', selectedSurgeon)
+        .eq('procedure_type', selectedProcedure)
     }
 
-    setEditingPlan(null)
+    if (editing === 'new') {
+      await supabase.from('surgeon_implant_plans').insert(data)
+    } else {
+      await supabase.from('surgeon_implant_plans').update(data).eq('id', editing.id)
+    }
+
+    setEditing(null)
     setSaving(false)
     router.refresh()
   }
 
   const deletePlan = async (planId: string) => {
     await supabase.from('surgeon_implant_plans').delete().eq('id', planId)
+    setEditing(null)
     router.refresh()
   }
 
-  const togglePoly = (polyId: string) => {
-    setFormPoly((prev) =>
-      prev.includes(polyId) ? prev.filter((p) => p !== polyId) : [...prev, polyId]
-    )
-  }
+  const togglePoly = (arr: string[], id: string) =>
+    arr.includes(id) ? arr.filter((p) => p !== id) : [...arr, id]
 
   const currentSurgeonDisplay = surgeons.find((s) => s.repsuite_name === selectedSurgeon)?.display_name
   const compConfig = getComponentConfig(selectedProcedure)
-  const componentKeys = compConfig.map((c) => c.key)
-
-  const planTypeColors: Record<string, { bg: string; text: string; border: string }> = {
-    primary: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-    cemented_fallback: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-    clinical_alternate: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-  }
 
   return (
     <div className="flex gap-0 bg-white rounded-xl border border-gray-200 overflow-hidden min-h-[600px]">
-      {/* Column 1: Surgeon List */}
+      {/* Surgeon list */}
       <div className="w-56 shrink-0 border-r border-gray-200 bg-gray-50/50 flex flex-col">
         <div className="px-3 py-3 border-b border-gray-200">
           <input
@@ -231,25 +207,22 @@ export default function ImplantPlansManager({
         <nav className="py-1 overflow-y-auto flex-1">
           {filteredSurgeons.map((surgeon) => {
             const isActive = selectedSurgeon === surgeon.repsuite_name
-            const isConfigured = configuredSet.has(surgeon.repsuite_name)
             const count = planCount(surgeon.repsuite_name)
             return (
               <button
                 key={surgeon.repsuite_name}
-                onClick={() => { setSelectedSurgeon(surgeon.repsuite_name); setEditingPlan(null) }}
+                onClick={() => { setSelectedSurgeon(surgeon.repsuite_name); setEditing(null) }}
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-left text-sm transition ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'text-gray-700 hover:bg-gray-100'
+                  isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
                 <span className="truncate">{surgeon.display_name}</span>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {count > 0 && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                      isActive ? 'bg-blue-100 text-blue-600' : isConfigured ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-200 text-gray-500'
+                      isActive ? 'bg-blue-100 text-blue-600' : configuredSet.has(surgeon.repsuite_name) ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-200 text-gray-500'
                     }`}>
-                      {count} plan{count !== 1 ? 's' : ''}
+                      {count}
                     </span>
                   )}
                   <svg className={`w-3.5 h-3.5 ${isActive ? 'text-blue-400' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -262,309 +235,418 @@ export default function ImplantPlansManager({
         </nav>
       </div>
 
-      {/* Column 2: Plans */}
+      {/* Plans */}
       {selectedSurgeon ? (
-        <div className="flex-1 overflow-x-auto">
+        <div className="flex-1 overflow-y-auto">
           {/* Header */}
-          <div className="px-5 py-3 border-b border-gray-200 bg-white sticky top-0 flex items-center justify-between">
+          <div className="px-5 py-3 border-b border-gray-200 bg-white sticky top-0 z-10 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900">{currentSurgeonDisplay}</span>
-            <div className="flex gap-1">
-              {PROCEDURE_TYPES.map((pt) => (
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                {PROCEDURE_TYPES.map((pt) => (
+                  <button
+                    key={pt.id}
+                    onClick={() => { setSelectedProcedure(pt.id); setEditing(null) }}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
+                      selectedProcedure === pt.id ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {pt.label}
+                  </button>
+                ))}
+              </div>
+              {canEdit && !editing && (
                 <button
-                  key={pt.id}
-                  onClick={() => { setSelectedProcedure(pt.id); setEditingPlan(null) }}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
-                    selectedProcedure === pt.id
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
+                  onClick={startNew}
+                  className="px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition"
                 >
-                  {pt.label}
+                  + New Plan
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
           <div className="p-4 space-y-4">
             {/* Existing plans */}
-            {surgeonPlans.map((plan) => {
-              const pt = PLAN_TYPES.find((p) => p.id === plan.plan_type)
-              const colors = planTypeColors[plan.plan_type] ?? planTypeColors.primary
+            {surgeonPlans.map((plan) => (
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                compConfig={compConfig}
+                canEdit={canEdit}
+                onEdit={() => startEditing(plan)}
+                onDelete={() => deletePlan(plan.id)}
+              />
+            ))}
 
-              return (
-                <div key={plan.id} className={`border rounded-lg ${colors.border}`}>
-                  <div className={`px-4 py-2.5 ${colors.bg} border-b ${colors.border} flex items-center justify-between`}>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-semibold ${colors.text}`}>
-                        {pt?.label ?? plan.plan_type}
-                      </span>
-                      {plan.plan_label && (
-                        <span className="text-xs text-gray-500">— {plan.plan_label}</span>
-                      )}
-                      {plan.plan_type === 'cemented_fallback' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 font-medium">1:1 with primary</span>
-                      )}
-                      {plan.conversion_likelihood && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 font-medium">
-                          {plan.conversion_likelihood} conversion
-                        </span>
-                      )}
-                    </div>
-                    {canEdit && (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => startEditing(plan.plan_type as PlanType, plan)}
-                          className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-white/50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deletePlan(plan.id)}
-                          className="text-xs px-2 py-1 rounded text-red-400 hover:bg-white/50 hover:text-red-600"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="px-4 py-3">
-                    <div className="grid grid-cols-4 gap-3">
-                      {componentKeys.map((key) => {
-                        const value = getDbValue(plan, selectedProcedure, key)
-                        return (
-                          <div key={key}>
-                            <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
-                              {COMPONENT_LABELS[key] ?? key}
-                            </div>
-                            <div className="text-sm font-medium text-gray-900">
-                              {key === 'poly' && plan.poly_variants && plan.poly_variants.length > 0
-                                ? plan.poly_variants.map((v) => getVariantLabel(v)).join(' + ')
-                                : value ? getVariantLabel(value) : (
-                                  <span className="text-gray-300">—</span>
-                                )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    {plan.notes && (
-                      <div className="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500">
-                        {plan.notes}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Edit/Add form */}
-            {editingPlan && (
-              <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50/30">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    {existingPlanTypes.has(editingPlan) ? 'Edit' : 'Add'}{' '}
-                    {PLAN_TYPES.find((p) => p.id === editingPlan)?.label} Plan
-                  </h3>
-                  <button
-                    onClick={() => setEditingPlan(null)}
-                    className="text-xs text-gray-400 hover:text-gray-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {/* Plan label */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Plan Label (optional)</label>
-                    <input
-                      type="text"
-                      value={formLabel}
-                      onChange={(e) => setFormLabel(e.target.value)}
-                      placeholder="e.g., CR Pressfit, PS Backup"
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-
-                  {/* Component selectors */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">{COMPONENT_LABELS[compConfig[0]?.key]}</label>
-                      <select
-                        value={formFemur}
-                        onChange={(e) => setFormFemur(e.target.value)}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">None</option>
-                        {compConfig[0]?.options.map((o) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">{COMPONENT_LABELS[compConfig[1]?.key]}</label>
-                      <select
-                        value={formTibia}
-                        onChange={(e) => setFormTibia(e.target.value)}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">None</option>
-                        {compConfig[1]?.options.map((o) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">{COMPONENT_LABELS[compConfig[2]?.key]}</label>
-                      <select
-                        value={formPatella}
-                        onChange={(e) => setFormPatella(e.target.value)}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">None</option>
-                        {compConfig[2]?.options.map((o) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        {COMPONENT_LABELS[compConfig[3]?.key]}
-                        {selectedProcedure === 'knee' && <span className="text-gray-400 ml-1">(multi-select)</span>}
-                      </label>
-                      {selectedProcedure === 'knee' ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {compConfig[3]?.options.map((o) => (
-                            <button
-                              key={o.id}
-                              onClick={() => togglePoly(o.id)}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-                                formPoly.includes(o.id)
-                                  ? 'bg-blue-100 border-blue-300 text-blue-700'
-                                  : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                              }`}
-                            >
-                              {o.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <select
-                          value={formPoly[0] ?? ''}
-                          onChange={(e) => setFormPoly(e.target.value ? [e.target.value] : [])}
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                        >
-                          <option value="">None</option>
-                          {compConfig[3]?.options.map((o) => (
-                            <option key={o.id} value={o.id}>{o.label}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Conversion likelihood for clinical alternate */}
-                  {editingPlan === 'clinical_alternate' && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Likelihood</label>
-                      <div className="flex gap-2">
-                        {CONVERSION_LIKELIHOODS.map((cl) => (
-                          <button
-                            key={cl.id}
-                            onClick={() => setFormLikelihood(cl.id)}
-                            className={`flex-1 px-3 py-2 rounded-lg border text-xs transition ${
-                              formLikelihood === cl.id
-                                ? 'bg-purple-100 border-purple-300 text-purple-700 font-medium'
-                                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                            }`}
-                          >
-                            <div className="font-medium">{cl.label}</div>
-                            <div className="text-[10px] mt-0.5 opacity-75">{cl.rule}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Notes */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
-                    <input
-                      type="text"
-                      value={formNotes}
-                      onChange={(e) => setFormNotes(e.target.value)}
-                      placeholder="e.g., Only if patient has ligament laxity"
-                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <button
-                      onClick={() => setEditingPlan(null)}
-                      className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={savePlan}
-                      disabled={saving}
-                      className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-                    >
-                      {saving ? 'Saving...' : 'Save Plan'}
-                    </button>
-                  </div>
-                </div>
+            {surgeonPlans.length === 0 && !editing && (
+              <div className="text-center py-8 text-sm text-gray-400">
+                No plans for {selectedProcedure}. Click &ldquo;+ New Plan&rdquo; to create one.
               </div>
             )}
 
-            {/* Add plan buttons */}
-            {canEdit && !editingPlan && (
-              <div className="flex gap-2">
-                {PLAN_TYPES.filter((pt) => !existingPlanTypes.has(pt.id)).map((pt) => {
-                  // Can't add cemented fallback without primary
-                  if (pt.id === 'cemented_fallback' && !existingPlanTypes.has('primary')) return null
-                  // Can't add clinical alternate without primary
-                  if (pt.id === 'clinical_alternate' && !existingPlanTypes.has('primary')) return null
-
-                  const colors = planTypeColors[pt.id]
-                  return (
-                    <button
-                      key={pt.id}
-                      onClick={() => startEditing(pt.id)}
-                      className={`px-4 py-2.5 rounded-lg border-2 border-dashed text-xs font-medium transition hover:shadow-sm ${colors.border} ${colors.text} hover:${colors.bg}`}
-                    >
-                      + Add {pt.label}
-                    </button>
-                  )
-                })}
-                {surgeonPlans.length === 0 && (
-                  <p className="text-xs text-gray-400 py-2">Start by adding a Primary plan for this surgeon.</p>
-                )}
-              </div>
+            {/* Edit / New form */}
+            {editing && (
+              <PlanForm
+                form={form}
+                setForm={setForm}
+                compConfig={compConfig}
+                selectedProcedure={selectedProcedure}
+                isNew={editing === 'new'}
+                saving={saving}
+                onSave={savePlan}
+                onCancel={() => setEditing(null)}
+                togglePoly={togglePoly}
+              />
             )}
-          </div>
-
-          {/* Legend */}
-          <div className="px-5 py-3 border-t border-gray-100 flex gap-4 text-xs text-gray-400">
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-blue-50 border border-blue-200"></span>
-              Primary — 1 set per case
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-amber-50 border border-amber-200"></span>
-              Cemented — 1:1 with primary
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-purple-50 border border-purple-200"></span>
-              Clinical Alt — configurable
-            </span>
           </div>
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-gray-300 text-sm">
-          Select a surgeon to configure their implant plans
+          Select a surgeon to manage their implant plans
         </div>
       )}
+    </div>
+  )
+}
+
+// ---- Plan Card (read-only) ----
+
+function PlanCard({
+  plan, compConfig, canEdit, onEdit, onDelete,
+}: {
+  plan: ImplantPlanTemplate
+  compConfig: { key: string; label: string; options: VariantOption[] }[]
+  canEdit: boolean
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-900">{plan.plan_name}</span>
+          {plan.is_default && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-medium">Default</span>
+          )}
+        </div>
+        {canEdit && (
+          <div className="flex gap-1">
+            <button onClick={onEdit} className="text-xs px-2 py-1 rounded text-gray-500 hover:bg-gray-100">Edit</button>
+            <button onClick={onDelete} className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-50 hover:text-red-600">Delete</button>
+          </div>
+        )}
+      </div>
+
+      {/* Primary */}
+      <div className="px-4 py-3">
+        <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-2">Primary</div>
+        <div className="grid grid-cols-4 gap-3">
+          {compConfig.map((comp, i) => {
+            const val = i === 0 ? plan.femur_variant : i === 1 ? plan.tibia_variant : i === 2 ? plan.patella_variant : null
+            const polyVal = i === 3 ? plan.poly_variants : null
+            return (
+              <div key={comp.key}>
+                <div className="text-[10px] text-gray-400 uppercase">{comp.label}</div>
+                <div className="text-sm font-medium text-gray-900">
+                  {polyVal && polyVal.length > 0
+                    ? polyVal.map((v) => getVariantLabel(v)).join(' + ')
+                    : val ? getVariantLabel(val) : <span className="text-gray-300">—</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Cemented fallback */}
+      {(plan.cemented_femur_variant || plan.cemented_tibia_variant || plan.cemented_patella_variant) && (
+        <div className="px-4 py-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="text-[10px] font-medium text-amber-500 uppercase tracking-wider">Cemented Fallback</div>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-500 font-medium">1:1 with primary</span>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {compConfig.map((comp, i) => {
+              const val = i === 0 ? plan.cemented_femur_variant : i === 1 ? plan.cemented_tibia_variant : i === 2 ? plan.cemented_patella_variant : null
+              if (i === 3) return <div key={comp.key} />
+              return (
+                <div key={comp.key}>
+                  <div className="text-[10px] text-gray-400 uppercase">{comp.label}</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {val ? getVariantLabel(val) : <span className="text-gray-300">—</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Clinical alternate */}
+      {plan.has_clinical_alternate && (
+        <div className="px-4 py-3 border-t border-gray-100">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Clinical Alternate</div>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-500 font-medium">
+              {plan.alt_conversion_likelihood} conversion
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {compConfig.map((comp, i) => {
+              const val = i === 0 ? plan.alt_femur_variant : i === 1 ? plan.alt_tibia_variant : i === 2 ? plan.alt_patella_variant : null
+              const polyVal = i === 3 ? plan.alt_poly_variants : null
+              return (
+                <div key={comp.key}>
+                  <div className="text-[10px] text-gray-400 uppercase">{comp.label}</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {polyVal && polyVal.length > 0
+                      ? polyVal.map((v) => getVariantLabel(v)).join(' + ')
+                      : val ? getVariantLabel(val) : <span className="text-gray-300">—</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {plan.notes && (
+        <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-500">{plan.notes}</div>
+      )}
+    </div>
+  )
+}
+
+// ---- Plan Form ----
+
+interface FormState {
+  plan_name: string; is_default: boolean
+  femur: string; tibia: string; patella: string; poly: string[]
+  cem_femur: string; cem_tibia: string; cem_patella: string
+  has_alt: boolean
+  alt_femur: string; alt_tibia: string; alt_patella: string; alt_poly: string[]
+  alt_likelihood: ConversionLikelihood
+  notes: string
+}
+
+function PlanForm({
+  form, setForm, compConfig, selectedProcedure, isNew, saving, onSave, onCancel, togglePoly,
+}: {
+  form: FormState
+  setForm: (f: FormState) => void
+  compConfig: { key: string; label: string; options: VariantOption[] }[]
+  selectedProcedure: string
+  isNew: boolean
+  saving: boolean
+  onSave: () => void
+  onCancel: () => void
+  togglePoly: (arr: string[], id: string) => string[]
+}) {
+  const u = (patch: Partial<FormState>) => setForm({ ...form, ...patch })
+
+  return (
+    <div className="border-2 border-dashed border-blue-300 rounded-lg p-5 bg-blue-50/20 space-y-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">{isNew ? 'New' : 'Edit'} Plan</h3>
+        <button onClick={onCancel} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+      </div>
+
+      {/* Plan name + default */}
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Plan Name</label>
+          <input
+            type="text"
+            value={form.plan_name}
+            onChange={(e) => u({ plan_name: e.target.value })}
+            placeholder="e.g., CR Pressfit Knee, PS Pro Knee"
+            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+        </div>
+        <div className="pt-5">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.is_default}
+              onChange={(e) => u({ is_default: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-xs text-gray-600">Default plan</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Primary components */}
+      <div>
+        <div className="text-xs font-semibold text-blue-600 mb-2">Primary Components</div>
+        <div className="grid grid-cols-2 gap-3">
+          {compConfig.map((comp, i) => (
+            <div key={comp.key}>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{comp.label}</label>
+              {i === 3 && selectedProcedure === 'knee' ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {comp.options.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => u({ poly: togglePoly(form.poly, o.id) })}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                        form.poly.includes(o.id)
+                          ? 'bg-blue-100 border-blue-300 text-blue-700'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <select
+                  value={i === 0 ? form.femur : i === 1 ? form.tibia : i === 2 ? form.patella : form.poly[0] ?? ''}
+                  onChange={(e) => {
+                    if (i === 0) u({ femur: e.target.value })
+                    else if (i === 1) u({ tibia: e.target.value })
+                    else if (i === 2) u({ patella: e.target.value })
+                    else u({ poly: e.target.value ? [e.target.value] : [] })
+                  }}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">None</option>
+                  {comp.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Cemented fallback */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <div className="text-xs font-semibold text-amber-600">Cemented Fallback</div>
+          <span className="text-[10px] text-amber-500">1:1 with primary — only set components that change when cementing</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {compConfig.slice(0, 3).map((comp, i) => (
+            <div key={comp.key}>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{comp.label}</label>
+              <select
+                value={i === 0 ? form.cem_femur : i === 1 ? form.cem_tibia : form.cem_patella}
+                onChange={(e) => {
+                  if (i === 0) u({ cem_femur: e.target.value })
+                  else if (i === 1) u({ cem_tibia: e.target.value })
+                  else u({ cem_patella: e.target.value })
+                }}
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+              >
+                <option value="">No change</option>
+                {comp.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Clinical alternate toggle */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.has_alt}
+            onChange={(e) => u({ has_alt: e.target.checked })}
+            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+          />
+          <span className="text-xs font-semibold text-purple-600">Include Clinical Alternate</span>
+          <span className="text-[10px] text-gray-400">Different constraint system if patient anatomy demands it</span>
+        </label>
+
+        {form.has_alt && (
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {compConfig.map((comp, i) => (
+                <div key={comp.key}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{comp.label}</label>
+                  {i === 3 && selectedProcedure === 'knee' ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {comp.options.map((o) => (
+                        <button
+                          key={o.id}
+                          onClick={() => u({ alt_poly: togglePoly(form.alt_poly, o.id) })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
+                            form.alt_poly.includes(o.id)
+                              ? 'bg-purple-100 border-purple-300 text-purple-700'
+                              : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <select
+                      value={i === 0 ? form.alt_femur : i === 1 ? form.alt_tibia : i === 2 ? form.alt_patella : form.alt_poly[0] ?? ''}
+                      onChange={(e) => {
+                        if (i === 0) u({ alt_femur: e.target.value })
+                        else if (i === 1) u({ alt_tibia: e.target.value })
+                        else if (i === 2) u({ alt_patella: e.target.value })
+                        else u({ alt_poly: e.target.value ? [e.target.value] : [] })
+                      }}
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 outline-none"
+                    >
+                      <option value="">None</option>
+                      {comp.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Conversion Likelihood</label>
+              <div className="flex gap-2">
+                {CONVERSION_LIKELIHOODS.map((cl) => (
+                  <button
+                    key={cl.id}
+                    onClick={() => u({ alt_likelihood: cl.id })}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-xs transition ${
+                      form.alt_likelihood === cl.id
+                        ? 'bg-purple-100 border-purple-300 text-purple-700 font-medium'
+                        : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium">{cl.label}</div>
+                    <div className="text-[10px] mt-0.5 opacity-75">{cl.rule}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+        <input
+          type="text"
+          value={form.notes}
+          onChange={(e) => u({ notes: e.target.value })}
+          placeholder="e.g., Patient has ligament laxity, use for revision cases"
+          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          onClick={onSave}
+          disabled={saving || !form.plan_name.trim()}
+          className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+        >
+          {saving ? 'Saving...' : 'Save Plan'}
+        </button>
+      </div>
     </div>
   )
 }

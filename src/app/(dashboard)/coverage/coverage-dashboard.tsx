@@ -1,9 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase'
 import type { CoverageResult, VariantCoverage } from '@/lib/daily-coverage'
-import { getVariantLabel } from '@/lib/plan-config'
 
 interface Facility {
   id: string
@@ -131,11 +129,19 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
               ))}
             </div>
 
-            {/* Warning for surgeons with no plans */}
+            {/* Warning for cases with no plan assigned */}
             {result.no_plans.length > 0 && (
               <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-                <span className="font-medium">Missing implant plans:</span>{' '}
-                {result.no_plans.join(', ')}. Configure in Preferences page.
+                <span className="font-medium">Cases without a plan assigned ({result.no_plans.length}):</span>{' '}
+                {result.no_plans.slice(0, 5).join('; ')}
+                {result.no_plans.length > 5 && ` +${result.no_plans.length - 5} more`}
+                . Assign plans on the Dashboard or set a default in Preferences.
+              </div>
+            )}
+            {result.no_plan_surgeons.length > 0 && (
+              <div className="mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                <span className="font-medium">No plans configured at all:</span>{' '}
+                {result.no_plan_surgeons.join(', ')}. Create plans in the Preferences page.
               </div>
             )}
           </div>
@@ -213,15 +219,21 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
                     <span className="text-gray-400 ml-2">— {c.surgeon_name.replace(/^\d+ - /, '')}</span>
                   </div>
                   <div className="flex gap-2">
+                    {c.plan_name ? (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-600">
+                        {c.plan_name}
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-50 text-amber-600">
+                        No plan
+                      </span>
+                    )}
                     <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                       c.side === 'left' ? 'bg-blue-50 text-blue-600' :
                       c.side === 'right' ? 'bg-indigo-50 text-indigo-600' :
                       'bg-gray-100 text-gray-500'
                     }`}>
                       {c.side === 'left' ? 'Left' : c.side === 'right' ? 'Right' : 'Unknown Side'}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
-                      {c.procedure_type}
                     </span>
                   </div>
                 </div>
@@ -298,7 +310,7 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
           {cov.demand_breakdown.slice(0, 2).map((d, i) => (
             <span key={i}>
               {i > 0 && ' + '}
-              {d.sets} {d.plan_type === 'primary' ? '' : d.plan_type === 'cemented_fallback' ? '(cem) ' : '(alt) '}
+              {d.sets} {d.plan_section === 'primary' ? '' : d.plan_section === 'cemented' ? '(cem) ' : '(alt) '}
               from {d.surgeon}
             </span>
           ))}
@@ -313,16 +325,16 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
               {cov.demand_breakdown.map((d, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    d.plan_type === 'primary' ? 'bg-blue-100 text-blue-600' :
-                    d.plan_type === 'cemented_fallback' ? 'bg-amber-100 text-amber-600' :
+                    d.plan_section === 'primary' ? 'bg-blue-100 text-blue-600' :
+                    d.plan_section === 'cemented' ? 'bg-amber-100 text-amber-600' :
                     'bg-purple-100 text-purple-600'
                   }`}>
-                    {d.plan_type === 'primary' ? 'Primary' :
-                     d.plan_type === 'cemented_fallback' ? 'Cemented' : 'Clinical Alt'}
+                    {d.plan_section === 'primary' ? 'Primary' :
+                     d.plan_section === 'cemented' ? 'Cemented' : 'Clinical Alt'}
                   </span>
                   <span className="text-gray-700">
                     {d.surgeon}
-                    {d.plan_label && <span className="text-gray-400"> ({d.plan_label})</span>}
+                    <span className="text-gray-400"> ({d.plan_name})</span>
                   </span>
                   <span className="text-gray-500">
                     {d.cases} case{d.cases !== 1 ? 's' : ''} = <span className="font-medium">{d.sets} set{d.sets !== 1 ? 's' : ''}</span>

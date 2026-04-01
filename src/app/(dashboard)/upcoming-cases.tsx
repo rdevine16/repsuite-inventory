@@ -1,18 +1,30 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase'
+import { useRouter } from 'next/navigation'
 
 interface Case {
   id: string
   case_id: string | null
   surgeon_name: string | null
+  raw_surgeon_name?: string | null
   procedure_name: string | null
   surgery_date: string | null
   hospital_name: string | null
   side: string | null
   status: string | null
+  plan_id: string | null
   facilities: { name: string } | { name: string }[] | null
+}
+
+interface PlanSummary {
+  id: string
+  surgeon_name: string
+  plan_name: string
+  procedure_type: string
+  is_default: boolean
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -36,24 +48,23 @@ function formatDayDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/New_York' })
 }
 
-export default function UpcomingCases({ cases }: { cases: Case[] }) {
-  // Group cases by day (Eastern timezone)
-  const toEasternDate = (d: Date) => {
-    return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  }
+function detectProcedureType(procedureName: string): string {
+  const lower = procedureName.toLowerCase()
+  if (lower.includes('hip') || lower.includes('tha')) return 'hip'
+  return 'knee'
+}
+
+export default function UpcomingCases({ cases, plans }: { cases: Case[]; plans: PlanSummary[] }) {
+  const toEasternDate = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
   const now = new Date()
   const todayStr = toEasternDate(now)
-  const tom = new Date(now)
-  tom.setDate(tom.getDate() + 1)
+  const tom = new Date(now); tom.setDate(tom.getDate() + 1)
   const tomorrowStr = toEasternDate(tom)
-  const da = new Date(now)
-  da.setDate(da.getDate() + 2)
+  const da = new Date(now); da.setDate(da.getDate() + 2)
   const dayAfterStr = toEasternDate(da)
 
-  const dayGroups: { date: string; label: string; fullDate: string; cases: Case[] }[] = []
   const grouped: Record<string, Case[]> = {}
-
   cases.forEach((c) => {
     if (!c.surgery_date) return
     const dateKey = toEasternDate(new Date(c.surgery_date))
@@ -61,39 +72,36 @@ export default function UpcomingCases({ cases }: { cases: Case[] }) {
     grouped[dateKey].push(c)
   })
 
-  ;[todayStr, tomorrowStr, dayAfterStr].forEach((dateStr) => {
-    const d = new Date(dateStr + 'T12:00:00')
-    dayGroups.push({
-      date: dateStr,
-      label: getDayLabel(dateStr + 'T12:00:00', todayStr, tomorrowStr, dayAfterStr),
-      fullDate: formatDayDate(dateStr + 'T12:00:00'),
-      cases: grouped[dateStr] ?? [],
-    })
-  })
+  const dayGroups = [todayStr, tomorrowStr, dayAfterStr].map((dateStr) => ({
+    date: dateStr,
+    label: getDayLabel(dateStr + 'T12:00:00', todayStr, tomorrowStr, dayAfterStr),
+    fullDate: formatDayDate(dateStr + 'T12:00:00'),
+    cases: grouped[dateStr] ?? [],
+  }))
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Upcoming Cases</h2>
-        <Link href="/cases" className="text-sm text-blue-600 hover:text-blue-700">
-          View all →
-        </Link>
+        <Link href="/cases" className="text-sm text-blue-600 hover:text-blue-700">View all →</Link>
       </div>
 
       <div className="border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '25%' }} />
-            <col style={{ width: '25%' }} />
             <col style={{ width: '20%' }} />
+            <col style={{ width: '22%' }} />
             <col style={{ width: '15%' }} />
-            <col style={{ width: '15%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '11%' }} />
           </colgroup>
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left py-2.5 px-3 text-gray-500 font-medium">Surgeon</th>
               <th className="text-left py-2.5 px-3 text-gray-500 font-medium">Procedure</th>
               <th className="text-left py-2.5 px-3 text-gray-500 font-medium">Facility</th>
+              <th className="text-left py-2.5 px-3 text-gray-500 font-medium">Plan</th>
               <th className="text-center py-2.5 px-3 text-gray-500 font-medium">Status</th>
               <th className="text-right py-2.5 px-3 text-gray-500 font-medium"></th>
             </tr>
@@ -102,7 +110,7 @@ export default function UpcomingCases({ cases }: { cases: Case[] }) {
             {dayGroups.map((day) => (
               <Fragment key={day.date}>
                 <tr className="bg-gray-50/70">
-                  <td colSpan={5} className="py-2 px-3">
+                  <td colSpan={6} className="py-2 px-3">
                     <div className="flex items-center gap-2">
                       <span className={`text-sm font-semibold ${day.label === 'Today' ? 'text-blue-600' : 'text-gray-700'}`}>
                         {day.label}
@@ -117,41 +125,14 @@ export default function UpcomingCases({ cases }: { cases: Case[] }) {
 
                 {day.cases.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-3 px-3 text-center text-xs text-gray-400 border-b border-gray-100">
+                    <td colSpan={6} className="py-3 px-3 text-center text-xs text-gray-400 border-b border-gray-100">
                       No cases
                     </td>
                   </tr>
                 ) : (
-                  day.cases.map((c) => {
-                    const facility = Array.isArray(c.facilities) ? c.facilities[0] : c.facilities
-                    const statusConfig = STATUS_CONFIG[c.status ?? ''] ?? { label: c.status ?? '—', color: 'bg-gray-100 text-gray-600' }
-                    return (
-                      <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
-                        <td className="py-2.5 px-3 font-medium text-gray-900 truncate">
-                          {c.surgeon_name ?? '—'}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 truncate max-w-full">
-                            {c.procedure_name ?? '—'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-gray-600 text-xs truncate">{facility?.name ?? c.hospital_name?.replace(/^\d+ - /, '') ?? '—'}</td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusConfig.color}`}>
-                            {statusConfig.label}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <Link
-                            href={'/cases/' + c.id}
-                            className="text-blue-600 hover:text-blue-700 text-xs font-medium"
-                          >
-                            View
-                          </Link>
-                        </td>
-                      </tr>
-                    )
-                  })
+                  day.cases.map((c) => (
+                    <CaseRow key={c.id} caseData={c} plans={plans} />
+                  ))
                 )}
               </Fragment>
             ))}
@@ -159,5 +140,82 @@ export default function UpcomingCases({ cases }: { cases: Case[] }) {
         </table>
       </div>
     </div>
+  )
+}
+
+function CaseRow({ caseData: c, plans }: { caseData: Case; plans: PlanSummary[] }) {
+  const router = useRouter()
+  const supabase = createClient()
+  const [assigning, setAssigning] = useState(false)
+
+  const facility = Array.isArray(c.facilities) ? c.facilities[0] : c.facilities
+  const statusConfig = STATUS_CONFIG[c.status ?? ''] ?? { label: c.status ?? '—', color: 'bg-gray-100 text-gray-600' }
+
+  // Filter plans for this surgeon + procedure type
+  const surgeonName = c.raw_surgeon_name ?? c.surgeon_name ?? ''
+  const procType = detectProcedureType(c.procedure_name ?? '')
+  const availablePlans = plans.filter((p) =>
+    p.surgeon_name === surgeonName && p.procedure_type === procType
+  )
+
+  const currentPlan = plans.find((p) => p.id === c.plan_id)
+
+  const assignPlan = async (planId: string | null) => {
+    setAssigning(true)
+    await supabase
+      .from('cases')
+      .update({ plan_id: planId })
+      .eq('id', c.id)
+    setAssigning(false)
+    router.refresh()
+  }
+
+  return (
+    <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+      <td className="py-2.5 px-3 font-medium text-gray-900 truncate">
+        {c.surgeon_name ?? '—'}
+      </td>
+      <td className="py-2.5 px-3">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 truncate max-w-full">
+          {c.procedure_name ?? '—'}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 text-gray-600 text-xs truncate">
+        {facility?.name ?? c.hospital_name?.replace(/^\d+ - /, '') ?? '—'}
+      </td>
+      <td className="py-2.5 px-3">
+        {availablePlans.length > 0 ? (
+          <select
+            value={c.plan_id ?? ''}
+            onChange={(e) => assignPlan(e.target.value || null)}
+            disabled={assigning}
+            className={`w-full px-2 py-1 border rounded text-xs outline-none transition ${
+              c.plan_id
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 font-medium'
+                : 'border-amber-300 bg-amber-50 text-amber-600'
+            } ${assigning ? 'opacity-50' : ''}`}
+          >
+            <option value="">No plan assigned</option>
+            {availablePlans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.plan_name}{p.is_default ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-[10px] text-gray-400">No plans configured</span>
+        )}
+      </td>
+      <td className="py-2.5 px-3 text-center">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusConfig.color}`}>
+          {statusConfig.label}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 text-right">
+        <Link href={'/cases/' + c.id} className="text-blue-600 hover:text-blue-700 text-xs font-medium">
+          View
+        </Link>
+      </td>
+    </tr>
   )
 }

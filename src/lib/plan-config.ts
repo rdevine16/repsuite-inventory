@@ -1,13 +1,34 @@
 // Implant plan configuration
-// Defines plan types, component variant options, and how they map to physical tubs
+// Defines plan template structure, component variant options, and tub mapping
+//
+// Plans are reusable templates: a surgeon can have multiple named plans.
+// Each case gets assigned one plan. The coverage engine reads the plan
+// from each case to calculate sets needed.
 
-export const PLAN_TYPES = [
-  { id: 'primary', label: 'Primary', description: 'What the surgeon intends to use', color: 'blue' },
-  { id: 'cemented_fallback', label: 'Cemented Fallback', description: 'If case requires cementing instead of pressfit', color: 'amber' },
-  { id: 'clinical_alternate', label: 'Clinical Alternate', description: 'Different constraint system if patient anatomy demands it', color: 'purple' },
-] as const
-
-export type PlanType = (typeof PLAN_TYPES)[number]['id']
+export interface ImplantPlanTemplate {
+  id: string
+  surgeon_name: string
+  plan_name: string
+  procedure_type: 'knee' | 'hip'
+  is_default: boolean
+  // Primary
+  femur_variant: string | null
+  tibia_variant: string | null
+  patella_variant: string | null
+  poly_variants: string[]
+  // Cemented fallback (1:1 with primary)
+  cemented_femur_variant: string | null
+  cemented_tibia_variant: string | null
+  cemented_patella_variant: string | null
+  // Clinical alternate
+  has_clinical_alternate: boolean
+  alt_femur_variant: string | null
+  alt_tibia_variant: string | null
+  alt_patella_variant: string | null
+  alt_poly_variants: string[]
+  alt_conversion_likelihood: ConversionLikelihood | null
+  notes: string | null
+}
 
 export const CONVERSION_LIKELIHOODS = [
   { id: 'low', label: 'Low', description: 'Rarely switches (~1 in 20 cases)', rule: 'Always 1 set' },
