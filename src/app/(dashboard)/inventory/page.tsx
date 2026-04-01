@@ -1,7 +1,16 @@
 import { createClient } from '@/lib/supabase-server'
 import { Suspense } from 'react'
 import DashboardShell from './dashboard-shell'
+import { DashboardSkeleton } from './loading-skeleton'
 import type { OverviewData } from './overview-tab'
+
+interface FacilitySummary {
+  id: string
+  name: string
+  itemCount: number
+  expiring30: number
+  removedThisMonth: number
+}
 
 export default async function InventoryPage({
   searchParams,
@@ -19,10 +28,99 @@ export default async function InventoryPage({
 
   const facilityList = facilities ?? []
   const selectedFacilityId = params.facility || facilityList[0]?.id || ''
+  const isAllFacilities = selectedFacilityId === 'all'
   const activeTab = params.tab || 'overview'
 
   // Facility metadata
-  const selectedFacility = facilityList.find((f) => f.id === selectedFacilityId)
+  const selectedFacility = isAllFacilities ? null : facilityList.find((f) => f.id === selectedFacilityId)
+
+  // === All-Facilities Mode: aggregate KPIs + comparison cards ===
+  if (isAllFacilities) {
+    const { data: allItems } = await supabase
+      .from('facility_inventory')
+      .select('id, facility_id, expiration_date, added_at')
+
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const thirtyStr = new Date(now.getTime() + 30 * 86400000).toISOString().split('T')[0]
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+
+    // Build per-facility summaries
+    const facilityMap = new Map<string, FacilitySummary>()
+    for (const f of facilityList) {
+      facilityMap.set(f.id, { id: f.id, name: f.name, itemCount: 0, expiring30: 0, removedThisMonth: 0 })
+    }
+    allItems?.forEach((item) => {
+      const fs = facilityMap.get(item.facility_id)
+      if (!fs) return
+      fs.itemCount++
+      if (item.expiration_date && item.expiration_date >= today && item.expiration_date <= thirtyStr) {
+        fs.expiring30++
+      }
+    })
+
+    // Get removal counts per facility this month
+    const { data: monthlyRemovals } = await supabase
+      .from('used_items')
+      .select('facility_id')
+      .gte('created_at', monthStart)
+
+    monthlyRemovals?.forEach((r) => {
+      const fs = facilityMap.get(r.facility_id)
+      if (fs) fs.removedThisMonth++
+    })
+
+    const facilitySummaries = Array.from(facilityMap.values())
+    const totalOnHand = facilitySummaries.reduce((s, f) => s + f.itemCount, 0)
+    const totalExpiring30 = facilitySummaries.reduce((s, f) => s + f.expiring30, 0)
+
+    const overviewData: OverviewData = {
+      totalOnHand,
+      addedThisWeek: 0,
+      addedThisMonth: allItems?.filter((i) => i.added_at >= monthStart).length ?? 0,
+      removedThisWeek: 0,
+      removedThisMonth: monthlyRemovals?.length ?? 0,
+      expiring30: totalExpiring30,
+      expiring60: 0,
+      expiring90: 0,
+      coverageShort: 0,
+      coverageCovered: 0,
+    }
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Inventory Intelligence</h1>
+          <p className="text-gray-500 mt-1">Aggregate view across all facilities</p>
+        </div>
+
+        <Suspense fallback={<DashboardSkeleton />}>
+          <DashboardShell
+            facilities={facilityList.map((f) => ({ id: f.id, name: f.name }))}
+            selectedFacilityId="all"
+            activeTab={activeTab}
+            facilityName="All Facilities"
+            facilityAddress={null}
+            smartTracking={false}
+            lastAuditDate={null}
+            overviewData={overviewData}
+            activityEvents={[]}
+            expirationItems={[]}
+            upcomingRefNumbers={[]}
+            parLevels={[]}
+            onHandMap={{}}
+            replenishments={[]}
+            analyticsData={{ usedItems: [], totalOnHand, upcomingCaseCount: 0 }}
+            discrepancies={[]}
+            auditSessions={[]}
+            facilitySummaries={facilitySummaries}
+          />
+        </Suspense>
+      </div>
+    )
+  }
+
+  // === Single Facility Mode ===
 
   // Audit sessions for selected facility
   const { data: auditSessions } = await supabase
@@ -31,7 +129,7 @@ export default async function InventoryPage({
     .eq('facility_id', selectedFacilityId)
     .order('started_at', { ascending: false })
 
-  // Inventory items (used for KPI calculations and legacy table fallback)
+  // Inventory items (used for KPI calculations)
   const { data: items } = await supabase
     .from('facility_inventory')
     .select('*, facilities(name)')
@@ -171,7 +269,6 @@ export default async function InventoryPage({
     .gte('surgery_date', now.toISOString())
 
   // === Discrepancy Detection ===
-  // 1. Source conflicts
   const { data: sourceConflicts } = await supabase
     .from('case_usage_items')
     .select('id, catalog_number, part_name, lot_number, source_conflict, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')
@@ -180,7 +277,6 @@ export default async function InventoryPage({
     .order('created_at', { ascending: false })
     .limit(20)
 
-  // 2. Unmatched deductions (used_items with no case_usage_item_id)
   const { data: unmatchedDeductions } = await supabase
     .from('used_items')
     .select('id, reference_number, description, lot_number, created_at')
@@ -189,7 +285,6 @@ export default async function InventoryPage({
     .order('created_at', { ascending: false })
     .limit(20)
 
-  // 3. Not matched (case_usage_items where status = not_matched)
   const { data: notMatched } = await supabase
     .from('case_usage_items')
     .select('id, catalog_number, part_name, lot_number, created_at, cases!inner(id, case_id, surgeon_name, facility_id)')
@@ -257,7 +352,7 @@ export default async function InventoryPage({
         <p className="text-gray-500 mt-1">Facility-scoped inventory dashboard with analytics and audit trail</p>
       </div>
 
-      <Suspense fallback={<div className="text-sm text-gray-400">Loading dashboard...</div>}>
+      <Suspense fallback={<DashboardSkeleton />}>
         <DashboardShell
           facilities={facilityList.map((f) => ({ id: f.id, name: f.name }))}
           selectedFacilityId={selectedFacilityId}

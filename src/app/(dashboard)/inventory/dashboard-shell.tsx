@@ -33,6 +33,7 @@ export default function DashboardShell({
   analyticsData,
   discrepancies,
   auditSessions,
+  facilitySummaries,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -51,6 +52,7 @@ export default function DashboardShell({
   analyticsData: AnalyticsData
   discrepancies: Discrepancy[]
   auditSessions: AuditSession[]
+  facilitySummaries?: { id: string; name: string; itemCount: number; expiring30: number; removedThisMonth: number }[]
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -71,7 +73,7 @@ export default function DashboardShell({
         activeTab={validTab}
         badges={discrepancies.length > 0 ? { overview: discrepancies.length } : undefined}
         children={{
-          overview: <OverviewTab data={overviewData} discrepancies={discrepancies} />,
+          overview: <OverviewTab data={overviewData} discrepancies={discrepancies} facilitySummaries={facilitySummaries} />,
           activity: <ActivityTab events={activityEvents} />,
           expirations: <ExpirationsTab items={expirationItems} upcomingRefNumbers={upcomingRefNumbers} />,
           'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} />,

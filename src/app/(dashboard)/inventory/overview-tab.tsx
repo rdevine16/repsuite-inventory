@@ -17,7 +17,23 @@ export interface OverviewData {
   coverageCovered: number
 }
 
-export default function OverviewTab({ data, discrepancies }: { data: OverviewData; discrepancies: Discrepancy[] }) {
+interface FacilitySummary {
+  id: string
+  name: string
+  itemCount: number
+  expiring30: number
+  removedThisMonth: number
+}
+
+export default function OverviewTab({
+  data,
+  discrepancies,
+  facilitySummaries,
+}: {
+  data: OverviewData
+  discrepancies: Discrepancy[]
+  facilitySummaries?: FacilitySummary[]
+}) {
   const [period, setPeriod] = useState<'week' | 'month'>('week')
 
   const added = period === 'week' ? data.addedThisWeek : data.addedThisMonth
@@ -109,6 +125,33 @@ export default function OverviewTab({ data, discrepancies }: { data: OverviewDat
           color={totalCoverage > 0 ? coverageColor : 'default'}
         />
       </div>
+
+      {/* Facility Comparison Cards (All Facilities mode) */}
+      {facilitySummaries && facilitySummaries.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Facility Comparison</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {facilitySummaries.map((f) => (
+              <a
+                key={f.id}
+                href={`/inventory?facility=${f.id}&tab=overview`}
+                className="bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 hover:shadow-md transition group"
+              >
+                <h4 className="text-sm font-semibold text-gray-900 group-hover:text-blue-600 transition">{f.name}</h4>
+                <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+                  <span><strong className="text-gray-900">{f.itemCount}</strong> items</span>
+                  {f.expiring30 > 0 && (
+                    <span className="text-red-600"><strong>{f.expiring30}</strong> expiring &lt;30d</span>
+                  )}
+                  {f.removedThisMonth > 0 && (
+                    <span><strong>{f.removedThisMonth}</strong> used this month</span>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Discrepancies */}
       <Discrepancies items={discrepancies} />

@@ -53,6 +53,7 @@ export default function DashboardTabs({
           onChange={(e) => updateParams({ facility: e.target.value })}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
         >
+          <option value="all">All Facilities</option>
           {facilities.map((f) => (
             <option key={f.id} value={f.id}>{f.name}</option>
           ))}
