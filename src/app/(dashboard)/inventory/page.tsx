@@ -121,6 +121,20 @@ export default async function InventoryPage({
     // Coverage engine may fail if no cases — that's fine
   }
 
+  // === Expiration Tab: upcoming case ref numbers for FEFO ===
+  const sevenDaysOut = new Date(now)
+  sevenDaysOut.setDate(sevenDaysOut.getDate() + 7)
+  const { data: upcomingUsage } = await supabase
+    .from('case_usage_items')
+    .select('catalog_number, cases!inner(facility_id)')
+    .eq('cases.facility_id', selectedFacilityId)
+
+  const upcomingRefNumbers: string[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  upcomingUsage?.forEach((u: any) => {
+    if (u.catalog_number) upcomingRefNumbers.push(u.catalog_number)
+  })
+
   const overviewData: OverviewData = {
     totalOnHand,
     addedThisWeek,
@@ -152,6 +166,15 @@ export default async function InventoryPage({
           lastAuditDate={lastSession?.started_at ?? null}
           overviewData={overviewData}
           activityEvents={activityEvents ?? []}
+          expirationItems={(items ?? []).map((i) => ({
+            id: i.id,
+            reference_number: i.reference_number,
+            description: i.description,
+            lot_number: i.lot_number,
+            expiration_date: i.expiration_date,
+            gtin: i.gtin,
+          }))}
+          upcomingRefNumbers={upcomingRefNumbers}
         />
       </Suspense>
     </div>
