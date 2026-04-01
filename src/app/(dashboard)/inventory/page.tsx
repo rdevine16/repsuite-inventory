@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase-server'
 import { Suspense } from 'react'
 import DashboardShell from './dashboard-shell'
+import type { OverviewData } from './overview-tab'
 
 export default async function InventoryPage({
   searchParams,
@@ -53,6 +54,93 @@ export default async function InventoryPage({
     }
   })
 
+  // === KPI Data for Overview Tab ===
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+
+  // Start of this week (Sunday)
+  const weekStart = new Date(now)
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+  weekStart.setHours(0, 0, 0, 0)
+  const weekStartISO = weekStart.toISOString()
+
+  // Start of this month
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthStartISO = monthStart.toISOString()
+
+  // Total on hand
+  const totalOnHand = items?.length ?? 0
+
+  // Items added this week/month (from facility_inventory.added_at)
+  const addedThisWeek = items?.filter((i) => i.added_at >= weekStartISO).length ?? 0
+  const addedThisMonth = items?.filter((i) => i.added_at >= monthStartISO).length ?? 0
+
+  // Items removed this week/month (from used_items)
+  const { count: removedWeekCount } = await supabase
+    .from('used_items')
+    .select('*', { count: 'exact', head: true })
+    .eq('facility_id', selectedFacilityId)
+    .gte('created_at', weekStartISO)
+
+  const { count: removedMonthCount } = await supabase
+    .from('used_items')
+    .select('*', { count: 'exact', head: true })
+    .eq('facility_id', selectedFacilityId)
+    .gte('created_at', monthStartISO)
+
+  // Expiration tiers
+  const thirtyDays = new Date(now)
+  thirtyDays.setDate(thirtyDays.getDate() + 30)
+  const sixtyDays = new Date(now)
+  sixtyDays.setDate(sixtyDays.getDate() + 60)
+  const ninetyDays = new Date(now)
+  ninetyDays.setDate(ninetyDays.getDate() + 90)
+
+  const thirtyStr = thirtyDays.toISOString().split('T')[0]
+  const sixtyStr = sixtyDays.toISOString().split('T')[0]
+  const ninetyStr = ninetyDays.toISOString().split('T')[0]
+
+  let expiring30 = 0
+  let expiring60 = 0
+  let expiring90 = 0
+
+  items?.forEach((item) => {
+    if (!item.expiration_date) return
+    const exp = item.expiration_date
+    if (exp < today) return // already expired, don't count
+    if (exp <= thirtyStr) expiring30++
+    else if (exp <= sixtyStr) expiring60++
+    else if (exp <= ninetyStr) expiring90++
+  })
+
+  // Coverage summary — check tomorrow's cases
+  let coverageShort = 0
+  let coverageCovered = 0
+  try {
+    const { calculateDailyCoverage } = await import('@/lib/daily-coverage')
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = tomorrow.toISOString().split('T')[0]
+    const coverage = await calculateDailyCoverage(supabase, selectedFacilityId, tomorrowStr)
+    coverageShort = coverage.coverage.filter((c) => c.status === 'short').length
+    coverageCovered = coverage.coverage.filter((c) => c.status === 'covered').length
+  } catch {
+    // Coverage engine may fail if no cases — that's fine
+  }
+
+  const overviewData: OverviewData = {
+    totalOnHand,
+    addedThisWeek,
+    addedThisMonth,
+    removedThisWeek: removedWeekCount ?? 0,
+    removedThisMonth: removedMonthCount ?? 0,
+    expiring30,
+    expiring60,
+    expiring90,
+    coverageShort,
+    coverageCovered,
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -71,6 +159,7 @@ export default async function InventoryPage({
           lastAuditDate={lastSession?.started_at ?? null}
           inventoryItems={items ?? []}
           gtinDisplayName={gtinDisplayName}
+          overviewData={overviewData}
         />
       </Suspense>
     </div>

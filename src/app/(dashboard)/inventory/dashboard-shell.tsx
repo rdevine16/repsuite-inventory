@@ -3,6 +3,7 @@
 import DashboardTabs, { type TabId } from './dashboard-tabs'
 import FacilityHeader from './facility-header'
 import InventoryTable from './inventory-table'
+import OverviewTab, { type OverviewData } from './overview-tab'
 
 interface InventoryItem {
   id: string
@@ -39,6 +40,7 @@ export default function DashboardShell({
   lastAuditDate,
   inventoryItems,
   gtinDisplayName,
+  overviewData,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -49,6 +51,7 @@ export default function DashboardShell({
   lastAuditDate: string | null
   inventoryItems: InventoryItem[]
   gtinDisplayName: Record<string, string>
+  overviewData: OverviewData
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -68,7 +71,7 @@ export default function DashboardShell({
         selectedFacility={selectedFacilityId}
         activeTab={validTab}
         children={{
-          overview: <PlaceholderTab label="Overview with KPIs and discrepancy detection" />,
+          overview: <OverviewTab data={overviewData} />,
           activity: (
             <InventoryTable
               items={inventoryItems}
