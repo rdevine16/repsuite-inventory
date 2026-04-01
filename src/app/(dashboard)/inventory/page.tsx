@@ -155,6 +155,23 @@ export default async function InventoryPage({
     .in('status', ['proposed', 'approved'])
     .order('surgery_date', { ascending: true })
 
+  // === Analytics Data ===
+  const twelveWeeksAgo = new Date(now)
+  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 84)
+  const { data: usedItemsForAnalytics } = await supabase
+    .from('used_items')
+    .select('reference_number, description, created_at')
+    .eq('facility_id', selectedFacilityId)
+    .gte('created_at', twelveWeeksAgo.toISOString())
+    .order('created_at', { ascending: false })
+
+  // Upcoming case count for avg-per-case calculation
+  const { count: upcomingCaseCount } = await supabase
+    .from('cases')
+    .select('*', { count: 'exact', head: true })
+    .eq('facility_id', selectedFacilityId)
+    .gte('surgery_date', now.toISOString())
+
   const overviewData: OverviewData = {
     totalOnHand,
     addedThisWeek,
@@ -198,6 +215,11 @@ export default async function InventoryPage({
           parLevels={parLevels ?? []}
           onHandMap={onHandMap}
           replenishments={replenishments ?? []}
+          analyticsData={{
+            usedItems: usedItemsForAnalytics ?? [],
+            totalOnHand,
+            upcomingCaseCount: upcomingCaseCount ?? 0,
+          }}
         />
       </Suspense>
     </div>

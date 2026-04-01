@@ -6,6 +6,7 @@ import OverviewTab, { type OverviewData } from './overview-tab'
 import ActivityTab, { type ActivityEvent } from './activity-tab'
 import ExpirationsTab, { type InventoryItemForExpiration } from './expirations-tab'
 import ParLevelsTab, { type ParLevelEntry, type ReplenishmentRequest } from './par-levels-tab'
+import AnalyticsTab, { type AnalyticsData } from './analytics-tab'
 
 interface Facility {
   id: string
@@ -35,6 +36,7 @@ export default function DashboardShell({
   parLevels,
   onHandMap,
   replenishments,
+  analyticsData,
 }: {
   facilities: Facility[]
   selectedFacilityId: string
@@ -50,6 +52,7 @@ export default function DashboardShell({
   parLevels: ParLevelEntry[]
   onHandMap: Record<string, number>
   replenishments: ReplenishmentRequest[]
+  analyticsData: AnalyticsData
 }) {
   const validTab = (['overview', 'activity', 'expirations', 'par-levels', 'analytics', 'audit'] as const).includes(activeTab as TabId)
     ? (activeTab as TabId)
@@ -73,7 +76,7 @@ export default function DashboardShell({
           activity: <ActivityTab events={activityEvents} />,
           expirations: <ExpirationsTab items={expirationItems} upcomingRefNumbers={upcomingRefNumbers} />,
           'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} />,
-          analytics: <PlaceholderTab label="Burn rate analytics with usage trend charts" />,
+          analytics: <AnalyticsTab data={analyticsData} />,
           audit: <PlaceholderTab label="Audit trail with session history and CSV export" />,
         }}
       />
