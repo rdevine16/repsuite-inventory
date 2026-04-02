@@ -310,8 +310,7 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
           {cov.demand_breakdown.slice(0, 2).map((d, i) => (
             <span key={i}>
               {i > 0 && ' + '}
-              {d.sets} {d.plan_section === 'primary' ? '' : d.plan_section === 'cemented' ? '(cem) ' : '(alt) '}
-              from {d.surgeon}
+              {d.sets} from {d.surgeon}
             </span>
           ))}
           {cov.demand_breakdown.length > 2 && <span> +{cov.demand_breakdown.length - 2} more</span>}
@@ -325,12 +324,12 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
               {cov.demand_breakdown.map((d, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    d.plan_section === 'primary' ? 'bg-blue-100 text-blue-600' :
-                    d.plan_section === 'cemented' ? 'bg-amber-100 text-amber-600' :
+                    d.frequency === 'every_case' ? 'bg-blue-100 text-blue-600' :
+                    d.frequency === 'low' ? 'bg-gray-100 text-gray-600' :
+                    d.frequency === 'medium' ? 'bg-amber-100 text-amber-600' :
                     'bg-purple-100 text-purple-600'
                   }`}>
-                    {d.plan_section === 'primary' ? 'Primary' :
-                     d.plan_section === 'cemented' ? 'Cemented' : 'Clinical Alt'}
+                    {d.sub_plan_name}
                   </span>
                   <span className="text-gray-700">
                     {d.surgeon}
