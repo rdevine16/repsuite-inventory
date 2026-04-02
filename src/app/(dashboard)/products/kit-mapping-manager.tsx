@@ -67,17 +67,16 @@ export default function KitMappingManager({
   // Drawer form state
   const [formDisplayName, setFormDisplayName] = useState('')
   const [formIsImplant, setFormIsImplant] = useState(true)
-  const [formComponent, setFormComponent] = useState('')
-  const [formVariant, setFormVariant] = useState('')
-  const [formSide, setFormSide] = useState('')
-  const [formTubGroup, setFormTubGroup] = useState('')
-  const [formTubsInGroup, setFormTubsInGroup] = useState(1)
+  const [formEntries, setFormEntries] = useState<{ component: string; variant: string; side: string; tub_group: string; tubs_in_group: number }[]>([])
   const [formNotes, setFormNotes] = useState('')
 
-  // Build variant mapping lookup
+  // Build variant mapping lookup (one set_name can have multiple mappings)
   const variantMap = useMemo(() => {
-    const map: Record<string, KitVariantMapping> = {}
-    variantMappings.forEach((v) => { map[v.set_name] = v })
+    const map: Record<string, KitVariantMapping[]> = {}
+    variantMappings.forEach((v) => {
+      if (!map[v.set_name]) map[v.set_name] = []
+      map[v.set_name].push(v)
+    })
     return map
   }, [variantMappings])
 
@@ -88,13 +87,13 @@ export default function KitMappingManager({
 
     const fromCases = repsuiteKits.map((k) => {
       const mapping = mappingByName[k.kit_name]
-      const vm = variantMap[k.kit_name]
+      const vms = variantMap[k.kit_name] ?? []
       return {
         repsuite_name: k.kit_name,
         display_name: mapping?.display_name ?? k.kit_name,
         isRenamed: !!mapping,
         mappingId: mapping?.id ?? null,
-        variantMapping: vm ?? null,
+        variantMappings: vms,
       }
     })
 
@@ -106,7 +105,7 @@ export default function KitMappingManager({
         display_name: m.display_name,
         isRenamed: true,
         mappingId: m.id,
-        variantMapping: variantMap[m.repsuite_name] ?? null,
+        variantMappings: variantMap[m.repsuite_name] ?? [],
       }))
 
     return [...fromCases, ...manualOnly]
@@ -120,15 +119,15 @@ export default function KitMappingManager({
         (k) => k.display_name.toLowerCase().includes(q) || k.repsuite_name.toLowerCase().includes(q)
       )
     }
-    if (filter === 'implant') result = result.filter((k) => k.variantMapping?.is_implant === true)
-    if (filter === 'instrument') result = result.filter((k) => k.variantMapping?.is_implant === false)
-    if (filter === 'unmapped') result = result.filter((k) => !k.variantMapping)
+    if (filter === 'implant') result = result.filter((k) => k.variantMappings.length > 0 && k.variantMappings[0]?.is_implant === true)
+    if (filter === 'instrument') result = result.filter((k) => k.variantMappings.length > 0 && k.variantMappings[0]?.is_implant === false)
+    if (filter === 'unmapped') result = result.filter((k) => k.variantMappings.length === 0)
     return result
   }, [kitList, search, filter])
 
-  const implantCount = kitList.filter((k) => k.variantMapping?.is_implant === true).length
-  const instrumentCount = kitList.filter((k) => k.variantMapping?.is_implant === false).length
-  const unmappedCount = kitList.filter((k) => !k.variantMapping).length
+  const implantCount = kitList.filter((k) => k.variantMappings.length > 0 && k.variantMappings[0]?.is_implant === true).length
+  const instrumentCount = kitList.filter((k) => k.variantMappings.length > 0 && k.variantMappings[0]?.is_implant === false).length
+  const unmappedCount = kitList.filter((k) => k.variantMappings.length === 0).length
 
   // Existing tub groups for autocomplete
   const existingGroups = useMemo(() => {
@@ -139,17 +138,35 @@ export default function KitMappingManager({
 
   // Open drawer
   const openDrawer = (kitName: string) => {
-    const vm = variantMap[kitName]
+    const vms = variantMap[kitName] ?? []
     const km = mappings.find((m) => m.repsuite_name === kitName)
     setFormDisplayName(km?.display_name ?? kitName)
-    setFormIsImplant(vm?.is_implant ?? true)
-    setFormComponent(vm?.component ?? '')
-    setFormVariant(vm?.variant ?? '')
-    setFormSide(vm?.side ?? '')
-    setFormTubGroup(vm?.tub_group ?? '')
-    setFormTubsInGroup(vm?.tubs_in_group ?? 1)
-    setFormNotes(vm?.notes ?? '')
+    setFormIsImplant(vms.length === 0 || vms[0]?.is_implant !== false)
+    setFormEntries(
+      vms.length > 0 && vms[0]?.is_implant !== false
+        ? vms.map((v) => ({
+            component: v.component ?? '',
+            variant: v.variant ?? '',
+            side: v.side ?? '',
+            tub_group: v.tub_group ?? '',
+            tubs_in_group: v.tubs_in_group ?? 1,
+          }))
+        : [{ component: '', variant: '', side: '', tub_group: '', tubs_in_group: 1 }]
+    )
+    setFormNotes(vms[0]?.notes ?? '')
     setDrawerKit(kitName)
+  }
+
+  const addEntry = () => {
+    setFormEntries([...formEntries, { component: '', variant: '', side: '', tub_group: '', tubs_in_group: 1 }])
+  }
+
+  const removeEntry = (idx: number) => {
+    setFormEntries(formEntries.filter((_, i) => i !== idx))
+  }
+
+  const updateEntry = (idx: number, patch: Partial<typeof formEntries[0]>) => {
+    setFormEntries(formEntries.map((e, i) => i === idx ? { ...e, ...patch } : e))
   }
 
   // Save
@@ -170,35 +187,39 @@ export default function KitMappingManager({
       }
     }
 
-    // Save variant mapping
-    const existingVariant = variantMap[drawerKit]
-    const variantData = {
-      set_name: drawerKit,
-      component: formIsImplant ? (formComponent || null) : null,
-      variant: formIsImplant ? (formVariant || null) : null,
-      side: formIsImplant && formComponent === 'femur' ? (formSide || null) : null,
-      tub_group: formIsImplant ? (formTubGroup || null) : null,
-      tubs_in_group: formIsImplant && formTubGroup ? formTubsInGroup : 1,
-      is_implant: formIsImplant,
-      notes: formNotes || null,
-      updated_at: new Date().toISOString(),
-    }
+    // Delete existing variant mappings for this set name
+    await supabase.from('kit_variant_mappings').delete().eq('set_name', drawerKit)
 
-    if (existingVariant) {
-      await supabase.from('kit_variant_mappings')
-        .update(variantData)
-        .eq('id', existingVariant.id)
+    if (!formIsImplant) {
+      // Insert single non-implant row
+      await supabase.from('kit_variant_mappings').insert({
+        set_name: drawerKit,
+        is_implant: false,
+        notes: formNotes || null,
+        updated_at: new Date().toISOString(),
+      })
     } else {
-      await supabase.from('kit_variant_mappings').insert(variantData)
+      // Insert one row per entry
+      for (const entry of formEntries) {
+        if (!entry.component && !entry.variant) continue
+        await supabase.from('kit_variant_mappings').insert({
+          set_name: drawerKit,
+          component: entry.component || null,
+          variant: entry.variant || null,
+          side: entry.component === 'femur' ? (entry.side || null) : null,
+          tub_group: entry.tub_group || null,
+          tubs_in_group: entry.tub_group ? entry.tubs_in_group : 1,
+          is_implant: true,
+          notes: formNotes || null,
+          updated_at: new Date().toISOString(),
+        })
+      }
     }
 
     setSaving(false)
     setDrawerKit(null)
     router.refresh()
   }
-
-  // Get variant options for selected component
-  const variantOptions = COMPONENT_OPTIONS.find((c) => c.id === formComponent)?.variants ?? []
 
   return (
     <div className="space-y-4">
@@ -269,7 +290,8 @@ export default function KitMappingManager({
             </thead>
             <tbody>
               {filtered.map((kit) => {
-                const vm = kit.variantMapping
+                const vms = kit.variantMappings
+                const firstVm = vms[0]
                 return (
                   <tr
                     key={kit.repsuite_name}
@@ -285,36 +307,42 @@ export default function KitMappingManager({
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      {vm && vm.is_implant && vm.component ? (
-                        <div className="flex items-center gap-1.5">
-                          {vm.side && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
-                              {vm.side === 'left' ? 'L' : 'R'}
-                            </span>
-                          )}
-                          <span className="text-xs text-gray-700">
-                            {getVariantLabel(vm.variant ?? '')} {vm.component.charAt(0).toUpperCase() + vm.component.slice(1)}
-                          </span>
+                      {vms.length > 0 && firstVm.is_implant && firstVm.component ? (
+                        <div className="flex flex-col gap-0.5">
+                          {vms.filter((v) => v.is_implant && v.component).map((vm, i) => (
+                            <div key={i} className="flex items-center gap-1.5">
+                              {vm.side && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                                  {vm.side === 'left' ? 'L' : 'R'}
+                                </span>
+                              )}
+                              <span className="text-xs text-gray-700">
+                                {getVariantLabel(vm.variant ?? '')} {(vm.component ?? '').charAt(0).toUpperCase() + (vm.component ?? '').slice(1)}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ) : vm && !vm.is_implant ? (
+                      ) : vms.length > 0 && !firstVm.is_implant ? (
                         <span className="text-xs text-gray-400">—</span>
                       ) : (
                         <span className="text-xs text-amber-500">Not mapped</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      {vm?.tub_group ? (
+                      {firstVm?.tub_group ? (
                         <span className="text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
-                          {vm.tub_group} ({vm.tubs_in_group} tubs)
+                          {firstVm.tub_group} ({firstVm.tubs_in_group} tubs)
                         </span>
                       ) : (
                         <span className="text-xs text-gray-400">—</span>
                       )}
                     </td>
                     <td className="py-3 px-4 text-center">
-                      {vm ? (
-                        vm.is_implant ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">Implant</span>
+                      {vms.length > 0 ? (
+                        firstVm.is_implant ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                            Implant{vms.length > 1 ? ` (${vms.length})` : ''}
+                          </span>
                         ) : (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Instrument</span>
                         )
@@ -410,97 +438,124 @@ export default function KitMappingManager({
                 </div>
               </div>
 
-              {/* Implant mapping fields */}
+              {/* Implant mapping entries */}
               {formIsImplant && (
                 <>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Component</label>
-                    <select
-                      value={formComponent}
-                      onChange={(e) => { setFormComponent(e.target.value); setFormVariant('') }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="">Select component...</option>
-                      {COMPONENT_OPTIONS.map((c) => (
-                        <option key={c.id} value={c.id}>{c.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {formComponent && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Variant</label>
-                      <select
-                        value={formVariant}
-                        onChange={(e) => setFormVariant(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-gray-500">Implant Mappings</label>
+                      <button
+                        onClick={addEntry}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
                       >
-                        <option value="">Select variant...</option>
-                        {variantOptions.map((v) => (
-                          <option key={v.id} value={v.id}>{v.label}</option>
-                        ))}
-                      </select>
+                        + Add variant
+                      </button>
                     </div>
-                  )}
 
-                  {formComponent === 'femur' && (
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Side</label>
-                      <div className="flex gap-2">
-                        {SIDE_OPTIONS.map((s) => (
-                          <button
-                            key={s.id}
-                            onClick={() => setFormSide(s.id)}
-                            className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition ${
-                              formSide === s.id
-                                ? 'bg-blue-50 border-blue-300 text-blue-700'
-                                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
-                            }`}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                    <div className="space-y-3">
+                      {formEntries.map((entry, idx) => {
+                        const entryVariantOptions = COMPONENT_OPTIONS.find((c) => c.id === entry.component)?.variants ?? []
+                        return (
+                          <div key={idx} className="border border-gray-200 rounded-lg p-3 space-y-3 relative">
+                            {formEntries.length > 1 && (
+                              <button
+                                onClick={() => removeEntry(idx)}
+                                className="absolute top-2 right-2 text-gray-300 hover:text-red-500"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            )}
 
-                  {/* Tub group */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Tub Group
-                      <span className="text-gray-400 font-normal ml-1">— for tubs that pair together as 1 set</span>
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={formTubGroup}
-                        onChange={(e) => setFormTubGroup(e.target.value)}
-                        placeholder="e.g., cs_poly"
-                        list="tub-groups"
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                      />
-                      <datalist id="tub-groups">
-                        {existingGroups.map((g) => <option key={g} value={g} />)}
-                      </datalist>
-                      {formTubGroup && (
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-gray-500 whitespace-nowrap">Tubs in group:</label>
-                          <input
-                            type="number"
-                            value={formTubsInGroup}
-                            onChange={(e) => setFormTubsInGroup(parseInt(e.target.value) || 1)}
-                            min={1}
-                            max={10}
-                            className="w-16 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                          />
-                        </div>
-                      )}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-0.5">Component</label>
+                                <select
+                                  value={entry.component}
+                                  onChange={(e) => updateEntry(idx, { component: e.target.value, variant: '' })}
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                >
+                                  <option value="">Select...</option>
+                                  {COMPONENT_OPTIONS.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-0.5">Variant</label>
+                                <select
+                                  value={entry.variant}
+                                  onChange={(e) => updateEntry(idx, { variant: e.target.value })}
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                  disabled={!entry.component}
+                                >
+                                  <option value="">Select...</option>
+                                  {entryVariantOptions.map((v) => (
+                                    <option key={v.id} value={v.id}>{v.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {entry.component === 'femur' && (
+                              <div className="flex gap-1.5">
+                                {SIDE_OPTIONS.map((s) => (
+                                  <button
+                                    key={s.id}
+                                    onClick={() => updateEntry(idx, { side: s.id })}
+                                    className={`flex-1 px-2 py-1 rounded text-[10px] font-medium border transition ${
+                                      entry.side === s.id
+                                        ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                        : 'bg-white border-gray-200 text-gray-500'
+                                    }`}
+                                  >
+                                    {s.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex gap-2 items-end">
+                              <div className="flex-1">
+                                <label className="block text-[10px] text-gray-400 mb-0.5">Tub Group</label>
+                                <input
+                                  type="text"
+                                  value={entry.tub_group}
+                                  onChange={(e) => updateEntry(idx, { tub_group: e.target.value })}
+                                  placeholder="e.g., cs_poly"
+                                  list="tub-groups"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                <datalist id="tub-groups">
+                                  {existingGroups.map((g) => <option key={g} value={g} />)}
+                                </datalist>
+                              </div>
+                              {entry.tub_group && (
+                                <div>
+                                  <label className="block text-[10px] text-gray-400 mb-0.5">Tubs</label>
+                                  <input
+                                    type="number"
+                                    value={entry.tubs_in_group}
+                                    onChange={(e) => updateEntry(idx, { tubs_in_group: parseInt(e.target.value) || 1 })}
+                                    min={1} max={10}
+                                    className="w-14 px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {entry.component && entry.variant && (
+                              <div className="text-[10px] text-blue-600">
+                                = {entry.side ? `${entry.side === 'left' ? 'Left' : 'Right'} ` : ''}
+                                {getVariantLabel(entry.variant)} {entry.component.charAt(0).toUpperCase() + entry.component.slice(1)}
+                                {entry.tub_group ? ` (group: ${entry.tub_group}, ${entry.tubs_in_group} tubs)` : ''}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
-                    {formTubGroup && (
-                      <p className="text-[10px] text-gray-400 mt-1">
-                        {formTubsInGroup} tub{formTubsInGroup !== 1 ? 's' : ''} in group &ldquo;{formTubGroup}&rdquo; = 1 complete set
-                      </p>
-                    )}
                   </div>
                 </>
               )}
@@ -518,17 +573,20 @@ export default function KitMappingManager({
               </div>
 
               {/* Summary */}
-              {formIsImplant && formComponent && formVariant && (
+              {formIsImplant && formEntries.some((e) => e.component && e.variant) && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <div className="text-xs font-medium text-blue-700">Mapping Summary</div>
                   <div className="text-sm text-blue-900 mt-1">
-                    This tub satisfies: <span className="font-semibold">
-                      {formSide ? `${formSide === 'left' ? 'Left' : 'Right'} ` : ''}
-                      {getVariantLabel(formVariant)} {formComponent.charAt(0).toUpperCase() + formComponent.slice(1)}
-                    </span>
-                    {formTubGroup && (
-                      <span className="text-blue-600"> (part of {formTubsInGroup}-tub group &ldquo;{formTubGroup}&rdquo;)</span>
-                    )}
+                    This tub satisfies:
+                    {formEntries.filter((e) => e.component && e.variant).map((e, i) => (
+                      <span key={i}>
+                        {i > 0 && ' + '}
+                        <span className="font-semibold">
+                          {e.side ? `${e.side === 'left' ? 'Left' : 'Right'} ` : ''}
+                          {getVariantLabel(e.variant)} {e.component.charAt(0).toUpperCase() + e.component.slice(1)}
+                        </span>
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
