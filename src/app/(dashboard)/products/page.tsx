@@ -7,6 +7,7 @@ import InstrumentCatalogManager from './instrument-catalog-manager'
 import FacilityMappingManager from './facility-mapping-manager'
 import SurgeonMappingManager from './surgeon-mapping-manager'
 import KitMappingManager from './kit-mapping-manager'
+import VariantSizesManager from './variant-sizes-manager'
 
 export default async function GroupingsPage() {
   const supabase = await createClient()
@@ -117,6 +118,13 @@ export default async function GroupingsPage() {
     .select('id, set_name, component, variant, side, tub_group, tubs_in_group, is_implant, notes')
     .order('set_name')
 
+  // Variant sizes
+  const { data: variantSizes } = await supabase
+    .from('variant_sizes')
+    .select('id, component, variant, sizes, notes')
+    .order('component')
+    .order('variant')
+
   // Instrument catalog data (paginate past 1000 default)
   let allInstruments: any[] = []
   let instFrom = 0
@@ -207,6 +215,12 @@ export default async function GroupingsPage() {
             userRole={userRole}
           />
         }
+        setSizesContent={
+          <VariantSizesManager
+            variantSizes={variantSizes ?? []}
+            userRole={userRole}
+          />
+        }
         traysContent={
           <InstrumentCatalogManager
             catalogItems={trayCatalog}
@@ -226,6 +240,7 @@ export default async function GroupingsPage() {
         facilityCount={facilities?.length ?? 0}
         surgeonCount={repsuiteSurgeons.length}
         kitCount={new Set([...(kitMappings ?? []).map(m => m.repsuite_name), ...repsuiteKits.map(k => k.kit_name)]).size}
+        setSizesCount={(variantSizes ?? []).length}
         productCount={productGroups?.length ?? 0}
         trayCount={trayCatalog.length}
         instrumentCount={instrumentCatalogItems.length}

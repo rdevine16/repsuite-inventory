@@ -81,15 +81,13 @@ function countCompleteSets(
   return Math.min(...sizes.map((size) => onHand[`${category}|${variant}|${size}`] ?? 0))
 }
 
-const FEMUR_SIZES = ['1', '2', '3', '4', '5', '6', '7', '8']
-const TIBIA_SIZES = ['1', '2', '3', '4', '5', '6', '7', '8']
-const PATELLA_SIZES: Record<string, string[]> = {
-  asym_pressfit: ['29', '32', '35', '38', '40'],
-  asym_cemented: ['29', '32', '35', '38', '40'],
-  sym_pressfit: ['29', '31', '33', '36', '39'],
-  sym_cemented: ['27', '29', '31', '33', '36', '39'],
+// Fallback sizes if variant_sizes table has no entry
+const FALLBACK_SIZES: Record<string, string[]> = {
+  femur: ['1', '2', '3', '4', '5', '6', '7', '8'],
+  tibia: ['1', '2', '3', '4', '5', '6', '7', '8'],
+  poly: ['1', '2', '3', '4', '5', '6', '7', '8'],
+  patella: ['29', '32', '35', '38', '40'],
 }
-const POLY_SIZES = ['1', '2', '3', '4', '5', '6', '7', '8']
 
 // ------- Main Engine -------
 
@@ -253,6 +251,20 @@ export async function calculateDailyCoverage(
     }
   }
 
+  // ------- Load variant sizes from DB -------
+  const { data: variantSizesData } = await supabase
+    .from('variant_sizes')
+    .select('component, variant, sizes')
+
+  const sizeMap: Record<string, string[]> = {}
+  for (const vs of variantSizesData ?? []) {
+    sizeMap[`${vs.component}|${vs.variant}`] = vs.sizes
+  }
+
+  function getSizes(component: string, variant: string): string[] {
+    return sizeMap[`${component}|${variant}`] ?? FALLBACK_SIZES[component] ?? []
+  }
+
   // ------- Count sets on hand -------
   const { data: inventoryItems } = await supabase
     .from('facility_inventory').select('gtin, reference_number').eq('facility_id', facilityId)
@@ -282,19 +294,36 @@ export async function calculateDailyCoverage(
     const side = sideKey === 'any' ? null : sideKey
 
     let setsOnHand = 0
+    const sizes = getSizes(component, variant)
+
+    // Map component to inventory grid category
+    const gridCategoryMap: Record<string, string> = {
+      femur: 'knee_femur', tibia: 'knee_tibia', patella: 'knee_patella',
+      stem: 'hip_stem', cup: 'hip_cup',
+    }
+
     if (component === 'femur') {
       const gv = side ? `${side}_${variant}` : variant
-      setsOnHand = countCompleteSets(onHand, 'knee_femur', gv, FEMUR_SIZES)
-    } else if (component === 'tibia') {
-      setsOnHand = countCompleteSets(onHand, 'knee_tibia', variant, TIBIA_SIZES)
-    } else if (component === 'patella') {
-      setsOnHand = countCompleteSets(onHand, 'knee_patella', variant, PATELLA_SIZES[variant] ?? ['29', '32', '35', '38', '40'])
+      setsOnHand = countCompleteSets(onHand, 'knee_femur', gv, sizes)
     } else if (component === 'poly') {
+      // Poly: 2D grid — category=knee_poly_{variant}, variants=knee sizes, sizes=thicknesses
       const cat = `knee_poly_${variant}`
+      const polySizes = getSizes('poly', variant)
       const ths = variant === 'ts' ? ['9', '11', '13', '16', '19', '22', '25', '28', '31'] : ['9', '10', '11', '12', '13', '14', '16', '19']
-      setsOnHand = Math.min(...POLY_SIZES.map((ks) => {
+      setsOnHand = Math.min(...polySizes.map((ks) => {
         let t = 0; for (const th of ths) t += onHand[`${cat}|${ks}|${th}`] ?? 0; return t
       }))
+    } else if (component === 'liner') {
+      // Liners have complex grid categories — skip detailed counting for now
+      // Will be handled once liner sizes are defined
+      setsOnHand = 0
+    } else if (component === 'head') {
+      // Heads are consumable — skip set counting
+      setsOnHand = 0
+    } else {
+      // Standard: femur, tibia, patella, stem, cup
+      const gridCat = gridCategoryMap[component] ?? component
+      setsOnHand = countCompleteSets(onHand, gridCat, variant, sizes)
     }
 
     const gap = Math.max(0, d.sets - setsOnHand)
