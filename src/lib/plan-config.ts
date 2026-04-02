@@ -91,6 +91,8 @@ export const HIP_PLAN_OPTIONS = {
   liner: [
     { id: 'x3_0', label: 'X3 0°' },
     { id: 'x3_10', label: 'X3 10°' },
+    { id: 'x3_0_constrained', label: 'X3 0° Constrained' },
+    { id: 'x3_10_constrained', label: 'X3 10° Constrained' },
     { id: 'x3_ecc', label: 'X3 Eccentric' },
     { id: 'mdm_cocr', label: 'MDM CoCr' },
     { id: 'mdm_x3', label: 'MDM X3' },
