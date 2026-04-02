@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { KNEE_PLAN_OPTIONS, HIP_PLAN_OPTIONS, getVariantLabel } from '@/lib/plan-config'
+import { KNEE_PLAN_OPTIONS, HIP_PLAN_OPTIONS, getVariantLabel, COMPONENT_LABELS } from '@/lib/plan-config'
 
 interface KitMapping {
   id: string
@@ -28,6 +28,14 @@ interface KitVariantMapping {
   notes: string | null
 }
 
+interface VariantSizeRow {
+  id: string
+  component: string
+  variant: string
+  sizes: string[]
+  notes: string | null
+}
+
 const COMPONENT_OPTIONS = [
   { id: 'femur', label: 'Femur', variants: KNEE_PLAN_OPTIONS.femur },
   { id: 'tibia', label: 'Tibia', variants: KNEE_PLAN_OPTIONS.tibia },
@@ -49,16 +57,19 @@ export default function KitMappingManager({
   mappings,
   repsuiteKits,
   variantMappings,
+  variantSizes,
   userRole,
 }: {
   mappings: KitMapping[]
   repsuiteKits: RepSuiteKit[]
   variantMappings: KitVariantMapping[]
+  variantSizes: VariantSizeRow[]
   userRole: string
 }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'implant' | 'instrument' | 'unmapped'>('all')
   const [drawerKit, setDrawerKit] = useState<string | null>(null)
+  const [drawerTab, setDrawerTab] = useState<'mapping' | 'sizes'>('mapping')
   const [saving, setSaving] = useState(false)
   const router = useRouter()
   const supabase = createClient()
@@ -69,6 +80,18 @@ export default function KitMappingManager({
   const [formIsImplant, setFormIsImplant] = useState(true)
   const [formEntries, setFormEntries] = useState<{ component: string; variant: string; side: string; tub_group: string; tubs_in_group: number }[]>([])
   const [formNotes, setFormNotes] = useState('')
+
+  // Sizes form state (per variant in current drawer)
+  const [sizesEditing, setSizesEditing] = useState<{ component: string; variant: string } | null>(null)
+  const [sizesValue, setSizesValue] = useState('')
+  const [sizesNotes, setSizesNotes] = useState('')
+
+  // Build sizes lookup
+  const sizesMap = useMemo(() => {
+    const map: Record<string, VariantSizeRow> = {}
+    variantSizes.forEach((vs) => { map[`${vs.component}|${vs.variant}`] = vs })
+    return map
+  }, [variantSizes])
 
   // Build variant mapping lookup (one set_name can have multiple mappings)
   const variantMap = useMemo(() => {
@@ -154,7 +177,27 @@ export default function KitMappingManager({
         : [{ component: '', variant: '', side: '', tub_group: '', tubs_in_group: 1 }]
     )
     setFormNotes(vms[0]?.notes ?? '')
+    setDrawerTab('mapping')
+    setSizesEditing(null)
     setDrawerKit(kitName)
+  }
+
+  // Save sizes for a specific variant
+  const saveSizes = async (component: string, variant: string) => {
+    if (!sizesValue.trim()) return
+    setSaving(true)
+    const sizes = sizesValue.split(',').map((s) => s.trim()).filter(Boolean)
+    const existing = sizesMap[`${component}|${variant}`]
+    if (existing) {
+      await supabase.from('variant_sizes')
+        .update({ sizes, notes: sizesNotes || null, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('variant_sizes').insert({ component, variant, sizes, notes: sizesNotes || null })
+    }
+    setSizesEditing(null)
+    setSaving(false)
+    router.refresh()
   }
 
   const addEntry = () => {
@@ -382,15 +425,32 @@ export default function KitMappingManager({
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setDrawerKit(null)} />
           <div className="relative w-full max-w-md bg-white shadow-xl overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
-              <h3 className="text-lg font-semibold text-gray-900">Kit Mapping</h3>
-              <button onClick={() => setDrawerKit(null)} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+            <div className="sticky top-0 bg-white border-b border-gray-200 z-10">
+              <div className="px-6 py-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 truncate pr-4">{formDisplayName || drawerKit}</h3>
+                <button onClick={() => setDrawerKit(null)} className="text-gray-400 hover:text-gray-600 shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex gap-4 px-6">
+                <button
+                  onClick={() => setDrawerTab('mapping')}
+                  className={`pb-2 text-sm font-medium border-b-2 transition ${
+                    drawerTab === 'mapping' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >Mapping</button>
+                <button
+                  onClick={() => setDrawerTab('sizes')}
+                  className={`pb-2 text-sm font-medium border-b-2 transition ${
+                    drawerTab === 'sizes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >Set Sizes</button>
+              </div>
             </div>
 
+            {drawerTab === 'mapping' && (
             <div className="p-6 space-y-6">
               {/* RepSuite name (read-only) */}
               <div>
@@ -608,6 +668,121 @@ export default function KitMappingManager({
                 </button>
               </div>
             </div>
+            )}
+
+            {/* Sizes Tab */}
+            {drawerTab === 'sizes' && (
+            <div className="p-6 space-y-4">
+              {formIsImplant && formEntries.some((e) => e.component && e.variant) ? (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Define what sizes make up a complete set for each variant mapped to this kit.
+                  </p>
+                  {formEntries.filter((e) => e.component && e.variant).map((entry) => {
+                    const key = `${entry.component}|${entry.variant}`
+                    const existing = sizesMap[key]
+                    const isEditing = sizesEditing?.component === entry.component && sizesEditing?.variant === entry.variant
+
+                    return (
+                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                          <div>
+                            <span className="text-sm font-medium text-gray-900">
+                              {getVariantLabel(entry.variant)} {COMPONENT_LABELS[entry.component] ?? entry.component}
+                            </span>
+                            {entry.side && (
+                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                                {entry.side === 'left' ? 'Left' : 'Right'}
+                              </span>
+                            )}
+                          </div>
+                          {canEdit && !isEditing && (
+                            <button
+                              onClick={() => {
+                                setSizesEditing({ component: entry.component, variant: entry.variant })
+                                setSizesValue(existing?.sizes.join(', ') ?? '')
+                                setSizesNotes(existing?.notes ?? '')
+                              }}
+                              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                              {existing ? 'Edit' : 'Define Sizes'}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="px-4 py-3">
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Sizes (comma-separated)</label>
+                                <textarea
+                                  value={sizesValue}
+                                  onChange={(e) => setSizesValue(e.target.value)}
+                                  placeholder="e.g., 1, 2, 3, 4, 5, 6, 7, 8"
+                                  rows={2}
+                                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                                  autoFocus
+                                />
+                                {sizesValue && (
+                                  <p className="text-[10px] text-gray-400 mt-0.5">
+                                    {sizesValue.split(',').map((s) => s.trim()).filter(Boolean).length} sizes = 1 complete set
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="block text-[10px] text-gray-400 mb-1">Notes</label>
+                                <input
+                                  type="text"
+                                  value={sizesNotes}
+                                  onChange={(e) => setSizesNotes(e.target.value)}
+                                  placeholder="Optional"
+                                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm outline-none"
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => saveSizes(entry.component, entry.variant)}
+                                  disabled={saving || !sizesValue.trim()}
+                                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                  {saving ? 'Saving...' : 'Save Sizes'}
+                                </button>
+                                <button
+                                  onClick={() => setSizesEditing(null)}
+                                  className="px-3 py-1.5 text-xs text-gray-500"
+                                >Cancel</button>
+                              </div>
+                            </div>
+                          ) : existing ? (
+                            <div className="flex flex-wrap gap-1">
+                              {existing.sizes.map((size) => (
+                                <span key={size} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-mono">
+                                  {size}
+                                </span>
+                              ))}
+                              <span className="text-[10px] text-gray-400 ml-1 self-center">
+                                ({existing.sizes.length} sizes)
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-amber-500">
+                              No sizes defined — coverage engine cannot verify inventory for this variant
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              ) : (
+                <div className="text-center py-8 text-sm text-gray-400">
+                  {formIsImplant
+                    ? 'Map this kit to a component and variant first (on the Mapping tab), then define sizes here.'
+                    : 'Instrument/trial sets don\u2019t have size definitions.'}
+                </div>
+              )}
+            </div>
+            )}
           </div>
         </div>
       )}

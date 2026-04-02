@@ -7,7 +7,6 @@ import InstrumentCatalogManager from './instrument-catalog-manager'
 import FacilityMappingManager from './facility-mapping-manager'
 import SurgeonMappingManager from './surgeon-mapping-manager'
 import KitMappingManager from './kit-mapping-manager'
-import VariantSizesManager from './variant-sizes-manager'
 
 export default async function GroupingsPage() {
   const supabase = await createClient()
@@ -204,6 +203,7 @@ export default async function GroupingsPage() {
             mappings={kitMappings ?? []}
             repsuiteKits={repsuiteKits}
             variantMappings={kitVariantMappings ?? []}
+            variantSizes={variantSizes ?? []}
             userRole={userRole}
           />
         }
@@ -212,12 +212,6 @@ export default async function GroupingsPage() {
             productGroups={productGroups ?? []}
             groupDetails={groupDetails}
             allCatalogItems={catalogItems ?? []}
-            userRole={userRole}
-          />
-        }
-        setSizesContent={
-          <VariantSizesManager
-            variantSizes={variantSizes ?? []}
             userRole={userRole}
           />
         }
@@ -240,7 +234,6 @@ export default async function GroupingsPage() {
         facilityCount={facilities?.length ?? 0}
         surgeonCount={repsuiteSurgeons.length}
         kitCount={new Set([...(kitMappings ?? []).map(m => m.repsuite_name), ...repsuiteKits.map(k => k.kit_name)]).size}
-        setSizesCount={(variantSizes ?? []).length}
         productCount={productGroups?.length ?? 0}
         trayCount={trayCatalog.length}
         instrumentCount={instrumentCatalogItems.length}

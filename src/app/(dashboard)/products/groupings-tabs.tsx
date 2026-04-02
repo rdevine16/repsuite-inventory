@@ -7,7 +7,6 @@ const TABS = [
   { id: 'surgeons', label: 'Surgeons' },
   { id: 'products', label: 'Implants' },
   { id: 'kits', label: 'Kits' },
-  { id: 'set_sizes', label: 'Set Sizes' },
   { id: 'trays', label: 'Instrument Trays' },
   { id: 'instruments', label: 'Instruments' },
 ]
@@ -17,14 +16,12 @@ export default function GroupingsTabs({
   surgeonsContent,
   productsContent,
   kitsContent,
-  setSizesContent,
   traysContent,
   instrumentsContent,
   facilityCount,
   surgeonCount,
   productCount,
   kitCount,
-  setSizesCount,
   trayCount,
   instrumentCount,
 }: {
@@ -32,14 +29,12 @@ export default function GroupingsTabs({
   surgeonsContent: ReactNode
   productsContent: ReactNode
   kitsContent: ReactNode
-  setSizesContent: ReactNode
   traysContent: ReactNode
   instrumentsContent: ReactNode
   facilityCount: number
   surgeonCount: number
   productCount: number
   kitCount: number
-  setSizesCount: number
   trayCount: number
   instrumentCount: number
 }) {
@@ -50,7 +45,6 @@ export default function GroupingsTabs({
     surgeons: surgeonCount,
     products: productCount,
     kits: kitCount,
-    set_sizes: setSizesCount,
     trays: trayCount,
     instruments: instrumentCount,
   }
@@ -84,7 +78,6 @@ export default function GroupingsTabs({
       <div key="surgeons">{tab === 'surgeons' && surgeonsContent}</div>
       <div key="products">{tab === 'products' && productsContent}</div>
       <div key="kits">{tab === 'kits' && kitsContent}</div>
-      <div key="set_sizes">{tab === 'set_sizes' && setSizesContent}</div>
       <div key="trays">{tab === 'trays' && traysContent}</div>
       <div key="instruments">{tab === 'instruments' && instrumentsContent}</div>
     </div>
