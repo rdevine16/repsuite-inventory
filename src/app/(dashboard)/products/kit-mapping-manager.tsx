@@ -71,6 +71,8 @@ export default function KitMappingManager({
   const [drawerKit, setDrawerKit] = useState<string | null>(null)
   const [drawerTab, setDrawerTab] = useState<'mapping' | 'sizes'>('mapping')
   const [saving, setSaving] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
   const canEdit = userRole === 'admin' || userRole === 'manager'
@@ -192,6 +194,38 @@ export default function KitMappingManager({
     router.refresh()
   }
 
+  const toggleSelect = (name: string) => {
+    const next = new Set(selected)
+    if (next.has(name)) next.delete(name)
+    else next.add(name)
+    setSelected(next)
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(filtered.map((k) => k.repsuite_name)))
+    }
+  }
+
+  const deleteSelected = async () => {
+    if (selected.size === 0) return
+    setDeleting(true)
+    for (const name of selected) {
+      // Delete variant mappings
+      await supabase.from('kit_variant_mappings').delete().eq('set_name', name)
+      // Delete display name mapping
+      const mapping = mappings.find((m) => m.repsuite_name === name)
+      if (mapping) {
+        await supabase.from('kit_mappings').delete().eq('id', mapping.id)
+      }
+    }
+    setSelected(new Set())
+    setDeleting(false)
+    router.refresh()
+  }
+
   const addEntry = () => {
     setFormEntries([...formEntries, { component: '', variant: '', side: '', tub_group: '', tubs_in_group: 1 }])
   }
@@ -310,12 +344,44 @@ export default function KitMappingManager({
         </div>
       </div>
 
+      {/* Bulk actions */}
+      {selected.size > 0 && canEdit && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-blue-700 font-medium">{selected.size} selected</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800"
+            >
+              Clear
+            </button>
+            <button
+              onClick={deleteSelected}
+              disabled={deleting}
+              className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? 'Deleting...' : `Delete ${selected.size} mapping${selected.size !== 1 ? 's' : ''}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                {canEdit && (
+                  <th className="py-3 px-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && selected.size === filtered.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </th>
+                )}
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Kit Name</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Mapping</th>
                 <th className="text-left py-3 px-4 text-gray-600 font-medium">Group</th>
@@ -333,6 +399,16 @@ export default function KitMappingManager({
                     className={`border-b border-gray-50 hover:bg-gray-50/50 group/row ${canEdit ? 'cursor-pointer' : ''}`}
                     onClick={canEdit ? () => openDrawer(kit.repsuite_name) : undefined}
                   >
+                    {canEdit && (
+                      <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(kit.repsuite_name)}
+                          onChange={() => toggleSelect(kit.repsuite_name)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
+                    )}
                     <td className="py-3 px-4">
                       <div>
                         <span className="font-medium text-gray-900">{kit.display_name}</span>
@@ -402,7 +478,7 @@ export default function KitMappingManager({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={canEdit ? 5 : 4} className="py-8 text-center text-gray-400">
+                  <td colSpan={canEdit ? 6 : 4} className="py-8 text-center text-gray-400">
                     {kitList.length === 0 ? 'No kits found. Sync cases first.' : 'No kits match your search.'}
                   </td>
                 </tr>
@@ -701,20 +777,42 @@ export default function KitMappingManager({
 
 // ------- Variant Sizes Editor (checkbox-based) -------
 
-// Map component to inventory grid category
-const GRID_CATEGORY_MAP: Record<string, string> = {
-  femur: 'knee_femur', tibia: 'knee_tibia', patella: 'knee_patella',
-  poly: 'knee_poly_cs', // polys are special — category varies by variant
-  stem: 'hip_stem', cup: 'hip_cup',
-  liner: 'hip_liner_x3_0', // liners are special — category varies
-  head: 'hip_head_delta',  // heads are special too
-}
-
+// Map component+variant to inventory grid category
 function getGridCategory(component: string, variant: string): string {
+  // Knee
+  if (component === 'femur') return 'knee_femur'
+  if (component === 'tibia') return 'knee_tibia'
+  if (component === 'patella') return 'knee_patella'
   if (component === 'poly') return `knee_poly_${variant}`
-  // For liners/heads the category is embedded in the hip-config section ID
-  // but for the sizes lookup we need the actual grid category from inventory-mapper
-  return GRID_CATEGORY_MAP[component] ?? component
+
+  // Hip stems & cups
+  if (component === 'stem') return 'hip_stem'
+  if (component === 'cup') return 'hip_cup'
+
+  // Hip liners — each type has its own grid category
+  if (component === 'liner') {
+    const linerCategoryMap: Record<string, string> = {
+      x3_0: 'hip_liner_x3_0',
+      x3_10: 'hip_liner_x3_10',
+      x3_0_constrained: 'hip_liner_x3_0', // constrained stored in same grid for now
+      x3_10_constrained: 'hip_liner_x3_10',
+      x3_ecc: 'hip_liner_x3_ecc',
+      mdm_cocr: 'hip_liner_mdm_cocr',
+      mdm_x3: 'hip_liner_mdm_x3',
+    }
+    return linerCategoryMap[variant] ?? `hip_liner_${variant}`
+  }
+
+  // Hip heads — each type has its own grid category
+  if (component === 'head') {
+    const headCategoryMap: Record<string, string> = {
+      delta_ceramic: 'hip_head_delta',
+      v40_cocr: 'hip_head_v40',
+    }
+    return headCategoryMap[variant] ?? `hip_head_${variant}`
+  }
+
+  return component
 }
 
 function VariantSizesEditor({

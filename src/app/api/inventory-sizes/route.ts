@@ -35,13 +35,27 @@ export async function GET(request: NextRequest) {
 
     // Build on-hand counts and extract matching sizes
     const counts = buildOnHandCounts(items)
-    const prefix = `${category}|${variant}|`
     const sizes: { size: string; count: number }[] = []
 
+    // Try exact category|variant|size match first
+    const prefix = `${category}|${variant}|`
     for (const [key, count] of Object.entries(counts)) {
       if (key.startsWith(prefix)) {
         const size = key.slice(prefix.length)
         sizes.push({ size, count })
+      }
+    }
+
+    // If no exact match, try category-wide: find all keys starting with category|
+    // This handles liners/heads where the "variant" in grid is a sub-dimension (e.g., 22mm, 28mm)
+    if (sizes.length === 0) {
+      const catPrefix = `${category}|`
+      for (const [key, count] of Object.entries(counts)) {
+        if (key.startsWith(catPrefix)) {
+          // key format: category|subVariant|size — combine subVariant+size as the "size" identifier
+          const rest = key.slice(catPrefix.length)
+          sizes.push({ size: rest.replace('|', ' / '), count })
+        }
       }
     }
 
