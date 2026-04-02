@@ -841,7 +841,6 @@ function VariantSizesEditor({
                       }`}
                     >
                       {size}
-                      <span className="text-[9px] ml-1 opacity-60">({count})</span>
                     </button>
                   ))}
                 </div>
