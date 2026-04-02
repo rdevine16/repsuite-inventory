@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { createClient } from '@/lib/supabase-server'
 import GroupingsTabs from './groupings-tabs'
 import ProductGroupsManager from './product-groups-manager'
@@ -54,16 +56,36 @@ export default async function GroupingsPage() {
     .sort()
     .map((name) => ({ surgeon_name: name }))
 
-  // Product groups data
-  const { data: productGroups } = await supabase
-    .from('product_groups')
-    .select('id, catalog_name, display_name')
-    .order('display_name')
+  // Product groups data (paginate past 1000 default)
+  let allProductGroups: any[] = []
+  let pgFrom = 0
+  while (true) {
+    const { data: batch } = await supabase
+      .from('product_groups')
+      .select('id, catalog_name, display_name')
+      .order('display_name')
+      .range(pgFrom, pgFrom + 999)
+    if (!batch || batch.length === 0) break
+    allProductGroups = allProductGroups.concat(batch)
+    if (batch.length < 1000) break
+    pgFrom += 1000
+  }
+  const productGroups = allProductGroups
 
-  const { data: catalogItems } = await supabase
-    .from('product_catalog')
-    .select('gtin, reference_number, description, product_group_id')
-    .order('reference_number')
+  let allCatalogItems: any[] = []
+  let ciFrom = 0
+  while (true) {
+    const { data: batch } = await supabase
+      .from('product_catalog')
+      .select('gtin, reference_number, description, product_group_id')
+      .order('reference_number')
+      .range(ciFrom, ciFrom + 999)
+    if (!batch || batch.length === 0) break
+    allCatalogItems = allCatalogItems.concat(batch)
+    if (batch.length < 1000) break
+    ciFrom += 1000
+  }
+  const catalogItems = allCatalogItems
 
   const groupDetails: Record<string, { gtinCount: number; refs: string[] }> = {}
   catalogItems?.forEach((item) => {
@@ -88,6 +110,12 @@ export default async function GroupingsPage() {
     .order('set_name')
 
   const repsuiteKits = (repsuiteSetNames ?? []).map((s) => ({ kit_name: s.set_name }))
+
+  // Kit variant mappings (implant component/variant mapping for coverage engine)
+  const { data: kitVariantMappings } = await supabase
+    .from('kit_variant_mappings')
+    .select('id, set_name, component, variant, side, tub_group, tubs_in_group, is_implant, notes')
+    .order('set_name')
 
   // Instrument catalog data (paginate past 1000 default)
   let allInstruments: any[] = []
@@ -167,6 +195,7 @@ export default async function GroupingsPage() {
           <KitMappingManager
             mappings={kitMappings ?? []}
             repsuiteKits={repsuiteKits}
+            variantMappings={kitVariantMappings ?? []}
             userRole={userRole}
           />
         }
