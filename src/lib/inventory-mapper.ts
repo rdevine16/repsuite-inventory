@@ -18,9 +18,9 @@ const HIP_RULES = {
   ],
   cups: [
     // Trident II Tritanium: 702-04-{size}{letter}
-    { pattern: /^702-04-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'Trident II Tritanium' },
+    { pattern: /^702-04-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'trident_ii_tritanium' },
     // Trident PSL HA: 542-11-{size}{letter}
-    { pattern: /^542-11-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'Trident PSL HA' },
+    { pattern: /^542-11-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'trident_psl_ha' },
   ],
   liners: [
     // Trident X3 0°: 723-00-{ID}{letter}
@@ -46,17 +46,17 @@ const HIP_RULES = {
   ],
   universal: [
     // Delta Universal 40mm Head: 6519-1-040
-    { pattern: /^6519-1-040$/, category: 'hip_head_universal', variant: 'Delta Universal 40mm Head', size: '0' },
+    { pattern: /^6519-1-040$/, category: 'hip_head_universal', variant: 'delta_universal_40mm', size: '0' },
     // V40 Adapter Sleeves: 6519-T-{offset code}
-    { pattern: /^6519-T-025$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '-2.5' },
-    { pattern: /^6519-T-100$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '0' },
-    { pattern: /^6519-T-204$/, category: 'hip_head_universal', variant: 'V40 Adapter Sleeve', size: '+4' },
+    { pattern: /^6519-T-025$/, category: 'hip_head_universal', variant: 'v40_adapter_sleeve', size: '-2.5' },
+    { pattern: /^6519-T-100$/, category: 'hip_head_universal', variant: 'v40_adapter_sleeve', size: '0' },
+    { pattern: /^6519-T-204$/, category: 'hip_head_universal', variant: 'v40_adapter_sleeve', size: '+4' },
   ],
   screws: [
     // Hex: 7030-65{length}
-    { pattern: /^7030-65(\d{2})$/, category: 'hip_screw', variant: 'Hex 6.5mm' },
+    { pattern: /^7030-65(\d{2})$/, category: 'hip_screw', variant: 'hex_6_5mm' },
     // Torx: 2030-65{length}-1
-    { pattern: /^2030-65(\d{2})-1$/, category: 'hip_screw', variant: 'Torx 6.5mm' },
+    { pattern: /^2030-65(\d{2})-1$/, category: 'hip_screw', variant: 'torx_6_5mm' },
   ],
 }
 
@@ -147,7 +147,7 @@ export function refToGridKey(ref: string): string | null {
       const id = parseInt(match[1]).toString() + 'mm'
       const letter = match[2]
       if (rule.category === 'hip_liner_mdm_cocr') {
-        return `${rule.category}|MDM CoCr|${letter}`
+        return `${rule.category}|mdm_cocr|${letter}`
       }
       return `${rule.category}|${id}|${letter}`
     }

@@ -33,10 +33,10 @@ export const HIP_SECTIONS = [
     fixationGroups: null,
     rowLabel: 'Type',
     sizeLabel: '',
-    variants: ['Trident II Tritanium', 'Trident PSL HA'],
+    variants: ['trident_ii_tritanium', 'trident_psl_ha'],
     sizes: ['42A', '44B', '46C', '48D', '50D', '52E', '54E', '56F', '58F', '60G', '62G', '64H', '66H'],
     sizesByVariant: {
-      'Trident PSL HA': ['46D', '50E', '52E'],
+      'trident_psl_ha': ['46D', '50E', '52E'],
     } as Record<string, string[]>,
   },
   {
@@ -92,7 +92,7 @@ export const HIP_SECTIONS = [
     fixationGroups: null,
     rowLabel: '',
     sizeLabel: '',
-    variants: ['MDM CoCr'],
+    variants: ['mdm_cocr'],
     sizes: ['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
   },
   {
@@ -144,11 +144,11 @@ export const HIP_SECTIONS = [
     fixationGroups: null,
     rowLabel: 'Type',
     sizeLabel: '',
-    variants: ['Delta Universal 40mm Head', 'V40 Adapter Sleeve'],
+    variants: ['delta_universal_40mm', 'v40_adapter_sleeve'],
     sizes: ['-2.5', '0', '+4'],
     sizesByVariant: {
-      'Delta Universal 40mm Head': ['0'],
-      'V40 Adapter Sleeve': ['-2.5', '0', '+4'],
+      'delta_universal_40mm': ['0'],
+      'v40_adapter_sleeve': ['-2.5', '0', '+4'],
     } as Record<string, string[]>,
   },
   {
@@ -157,11 +157,11 @@ export const HIP_SECTIONS = [
     fixationGroups: null,
     rowLabel: 'Type',
     sizeLabel: 'mm',
-    variants: ['Hex 6.5mm', 'Torx 6.5mm'],
+    variants: ['hex_6_5mm', 'torx_6_5mm'],
     sizes: ['15', '16', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
     sizesByVariant: {
-      'Hex 6.5mm': ['15', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
-      'Torx 6.5mm': ['16', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
+      'hex_6_5mm': ['15', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
+      'torx_6_5mm': ['16', '20', '25', '30', '35', '40', '45', '50', '55', '60'],
     } as Record<string, string[]>,
   },
 ] as const

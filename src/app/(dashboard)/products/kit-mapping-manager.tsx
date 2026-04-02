@@ -81,11 +81,6 @@ export default function KitMappingManager({
   const [formEntries, setFormEntries] = useState<{ component: string; variant: string; side: string; tub_group: string; tubs_in_group: number }[]>([])
   const [formNotes, setFormNotes] = useState('')
 
-  // Sizes form state (per variant in current drawer)
-  const [sizesEditing, setSizesEditing] = useState<{ component: string; variant: string } | null>(null)
-  const [sizesValue, setSizesValue] = useState('')
-  const [sizesNotes, setSizesNotes] = useState('')
-
   // Build sizes lookup
   const sizesMap = useMemo(() => {
     const map: Record<string, VariantSizeRow> = {}
@@ -178,24 +173,21 @@ export default function KitMappingManager({
     )
     setFormNotes(vms[0]?.notes ?? '')
     setDrawerTab('mapping')
-    setSizesEditing(null)
     setDrawerKit(kitName)
   }
 
   // Save sizes for a specific variant
-  const saveSizes = async (component: string, variant: string) => {
-    if (!sizesValue.trim()) return
+  const saveSizes = async (component: string, variant: string, sizes: string[], notes: string) => {
+    if (sizes.length === 0) return
     setSaving(true)
-    const sizes = sizesValue.split(',').map((s) => s.trim()).filter(Boolean)
     const existing = sizesMap[`${component}|${variant}`]
     if (existing) {
       await supabase.from('variant_sizes')
-        .update({ sizes, notes: sizesNotes || null, updated_at: new Date().toISOString() })
+        .update({ sizes, notes: notes || null, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
     } else {
-      await supabase.from('variant_sizes').insert({ component, variant, sizes, notes: sizesNotes || null })
+      await supabase.from('variant_sizes').insert({ component, variant, sizes, notes: notes || null })
     }
-    setSizesEditing(null)
     setSaving(false)
     router.refresh()
   }
@@ -676,103 +668,20 @@ export default function KitMappingManager({
               {formIsImplant && formEntries.some((e) => e.component && e.variant) ? (
                 <>
                   <p className="text-xs text-gray-500">
-                    Define what sizes make up a complete set for each variant mapped to this kit.
+                    Define what sizes make up a complete set. Sizes found in your inventory are shown as checkboxes.
                   </p>
-                  {formEntries.filter((e) => e.component && e.variant).map((entry) => {
-                    const key = `${entry.component}|${entry.variant}`
-                    const existing = sizesMap[key]
-                    const isEditing = sizesEditing?.component === entry.component && sizesEditing?.variant === entry.variant
-
-                    return (
-                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                          <div>
-                            <span className="text-sm font-medium text-gray-900">
-                              {getVariantLabel(entry.variant)} {COMPONENT_LABELS[entry.component] ?? entry.component}
-                            </span>
-                            {entry.side && (
-                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
-                                {entry.side === 'left' ? 'Left' : 'Right'}
-                              </span>
-                            )}
-                          </div>
-                          {canEdit && !isEditing && (
-                            <button
-                              onClick={() => {
-                                setSizesEditing({ component: entry.component, variant: entry.variant })
-                                setSizesValue(existing?.sizes.join(', ') ?? '')
-                                setSizesNotes(existing?.notes ?? '')
-                              }}
-                              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-                            >
-                              {existing ? 'Edit' : 'Define Sizes'}
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="px-4 py-3">
-                          {isEditing ? (
-                            <div className="space-y-3">
-                              <div>
-                                <label className="block text-[10px] text-gray-400 mb-1">Sizes (comma-separated)</label>
-                                <textarea
-                                  value={sizesValue}
-                                  onChange={(e) => setSizesValue(e.target.value)}
-                                  placeholder="e.g., 1, 2, 3, 4, 5, 6, 7, 8"
-                                  rows={2}
-                                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-                                  autoFocus
-                                />
-                                {sizesValue && (
-                                  <p className="text-[10px] text-gray-400 mt-0.5">
-                                    {sizesValue.split(',').map((s) => s.trim()).filter(Boolean).length} sizes = 1 complete set
-                                  </p>
-                                )}
-                              </div>
-                              <div>
-                                <label className="block text-[10px] text-gray-400 mb-1">Notes</label>
-                                <input
-                                  type="text"
-                                  value={sizesNotes}
-                                  onChange={(e) => setSizesNotes(e.target.value)}
-                                  placeholder="Optional"
-                                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm outline-none"
-                                />
-                              </div>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => saveSizes(entry.component, entry.variant)}
-                                  disabled={saving || !sizesValue.trim()}
-                                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                  {saving ? 'Saving...' : 'Save Sizes'}
-                                </button>
-                                <button
-                                  onClick={() => setSizesEditing(null)}
-                                  className="px-3 py-1.5 text-xs text-gray-500"
-                                >Cancel</button>
-                              </div>
-                            </div>
-                          ) : existing ? (
-                            <div className="flex flex-wrap gap-1">
-                              {existing.sizes.map((size) => (
-                                <span key={size} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-mono">
-                                  {size}
-                                </span>
-                              ))}
-                              <span className="text-[10px] text-gray-400 ml-1 self-center">
-                                ({existing.sizes.length} sizes)
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-amber-500">
-                              No sizes defined — coverage engine cannot verify inventory for this variant
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                  {formEntries.filter((e) => e.component && e.variant).map((entry) => (
+                    <VariantSizesEditor
+                      key={`${entry.component}|${entry.variant}`}
+                      component={entry.component}
+                      variant={entry.variant}
+                      side={entry.side}
+                      existing={sizesMap[`${entry.component}|${entry.variant}`]}
+                      canEdit={canEdit}
+                      onSave={(sizes, notes) => saveSizes(entry.component, entry.variant, sizes, notes)}
+                      saving={saving}
+                    />
+                  ))}
                 </>
               ) : (
                 <div className="text-center py-8 text-sm text-gray-400">
@@ -786,6 +695,254 @@ export default function KitMappingManager({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ------- Variant Sizes Editor (checkbox-based) -------
+
+// Map component to inventory grid category
+const GRID_CATEGORY_MAP: Record<string, string> = {
+  femur: 'knee_femur', tibia: 'knee_tibia', patella: 'knee_patella',
+  poly: 'knee_poly_cs', // polys are special — category varies by variant
+  stem: 'hip_stem', cup: 'hip_cup',
+  liner: 'hip_liner_x3_0', // liners are special — category varies
+  head: 'hip_head_delta',  // heads are special too
+}
+
+function getGridCategory(component: string, variant: string): string {
+  if (component === 'poly') return `knee_poly_${variant}`
+  // For liners/heads the category is embedded in the hip-config section ID
+  // but for the sizes lookup we need the actual grid category from inventory-mapper
+  return GRID_CATEGORY_MAP[component] ?? component
+}
+
+function VariantSizesEditor({
+  component, variant, side, existing, canEdit, onSave, saving,
+}: {
+  component: string
+  variant: string
+  side: string
+  existing: VariantSizeRow | undefined
+  canEdit: boolean
+  onSave: (sizes: string[], notes: string) => Promise<void>
+  saving: boolean
+}) {
+  const [inventorySizes, setInventorySizes] = useState<{ size: string; count: number }[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [selectedSizes, setSelectedSizes] = useState<Set<string>>(new Set(existing?.sizes ?? []))
+  const [isEditing, setIsEditing] = useState(false)
+  const [notes, setNotes] = useState(existing?.notes ?? '')
+  const [manualSize, setManualSize] = useState('')
+
+  const gridCategory = getGridCategory(component, variant)
+
+  const loadInventorySizes = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/inventory-sizes?category=${gridCategory}&variant=${variant}`)
+      if (res.ok) {
+        const data = await res.json()
+        setInventorySizes(data.sizes)
+      }
+    } catch { /* ignore */ }
+    setLoading(false)
+  }
+
+  const startEditing = () => {
+    setSelectedSizes(new Set(existing?.sizes ?? []))
+    setNotes(existing?.notes ?? '')
+    loadInventorySizes()
+    setIsEditing(true)
+  }
+
+  const toggleSize = (size: string) => {
+    const next = new Set(selectedSizes)
+    if (next.has(size)) next.delete(size)
+    else next.add(size)
+    setSelectedSizes(next)
+  }
+
+  const addManualSize = () => {
+    if (!manualSize.trim()) return
+    const next = new Set(selectedSizes)
+    next.add(manualSize.trim())
+    setSelectedSizes(next)
+    setManualSize('')
+  }
+
+  const selectAll = () => {
+    const all = new Set(selectedSizes)
+    inventorySizes?.forEach((s) => all.add(s.size))
+    setSelectedSizes(all)
+  }
+
+  const handleSave = async () => {
+    const sorted = Array.from(selectedSizes).sort((a, b) => {
+      const aNum = parseInt(a)
+      const bNum = parseInt(b)
+      if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum
+      return a.localeCompare(b)
+    })
+    await onSave(sorted, notes)
+    setIsEditing(false)
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <span className="text-sm font-medium text-gray-900">
+            {getVariantLabel(variant)} {COMPONENT_LABELS[component] ?? component}
+          </span>
+          {side && (
+            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+              {side === 'left' ? 'Left' : 'Right'}
+            </span>
+          )}
+        </div>
+        {canEdit && !isEditing && (
+          <button
+            onClick={startEditing}
+            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            {existing ? 'Edit' : 'Define Sizes'}
+          </button>
+        )}
+      </div>
+
+      <div className="px-4 py-3">
+        {isEditing ? (
+          <div className="space-y-3">
+            {/* Inventory sizes as checkboxes */}
+            {loading ? (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Scanning inventory...
+              </div>
+            ) : inventorySizes && inventorySizes.length > 0 ? (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Found in inventory</label>
+                  <button onClick={selectAll} className="text-[10px] text-blue-600 font-medium">Select All</button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {inventorySizes.map(({ size, count }) => (
+                    <button
+                      key={size}
+                      onClick={() => toggleSize(size)}
+                      className={`text-xs px-2 py-1 rounded-lg border font-mono transition ${
+                        selectedSizes.has(size)
+                          ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      {size}
+                      <span className="text-[9px] ml-1 opacity-60">({count})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : inventorySizes ? (
+              <p className="text-xs text-gray-400">No inventory found for this variant across any facility.</p>
+            ) : null}
+
+            {/* Already selected sizes not in inventory */}
+            {(() => {
+              const invSizeSet = new Set(inventorySizes?.map((s) => s.size) ?? [])
+              const extraSelected = Array.from(selectedSizes).filter((s) => !invSizeSet.has(s))
+              if (extraSelected.length === 0) return null
+              return (
+                <div>
+                  <label className="text-[10px] text-gray-400 font-medium uppercase tracking-wider mb-1 block">
+                    Manually added
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {extraSelected.map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => toggleSize(size)}
+                        className="text-xs px-2 py-1 rounded-lg border bg-blue-100 border-blue-300 text-blue-700 font-mono font-medium"
+                      >
+                        {size}
+                        <span className="text-[9px] ml-1 opacity-60">x</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Manual add */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={manualSize}
+                onChange={(e) => setManualSize(e.target.value)}
+                placeholder="Add size manually..."
+                className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualSize() } }}
+              />
+              <button
+                onClick={addManualSize}
+                disabled={!manualSize.trim()}
+                className="px-2 py-1 text-xs text-blue-600 font-medium disabled:opacity-30"
+              >Add</button>
+            </div>
+
+            {/* Summary */}
+            {selectedSizes.size > 0 && (
+              <p className="text-[10px] text-blue-600">
+                {selectedSizes.size} sizes selected = 1 complete set
+              </p>
+            )}
+
+            {/* Notes */}
+            <div>
+              <label className="text-[10px] text-gray-400 mb-0.5 block">Notes</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional"
+                className="w-full px-2 py-1 border border-gray-300 rounded text-xs outline-none"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving || selectedSizes.size === 0}
+                className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save Sizes'}
+              </button>
+              <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 text-xs text-gray-500">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : existing ? (
+          <div className="flex flex-wrap gap-1">
+            {existing.sizes.map((size) => (
+              <span key={size} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-mono">
+                {size}
+              </span>
+            ))}
+            <span className="text-[10px] text-gray-400 ml-1 self-center">
+              ({existing.sizes.length} sizes)
+            </span>
+          </div>
+        ) : (
+          <p className="text-xs text-amber-500">
+            No sizes defined — coverage engine cannot verify inventory for this variant
+          </p>
+        )}
+      </div>
     </div>
   )
 }

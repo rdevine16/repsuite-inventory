@@ -3,6 +3,14 @@
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import { HIP_SECTIONS } from '@/lib/hip-config'
+import { getVariantLabel } from '@/lib/plan-config'
+
+// Display label for flat variant IDs (snake_case → display name)
+function variantLabel(v: string): string {
+  // If it looks like a measurement (22mm, 28mm), keep as-is
+  if (/^\d+mm$/.test(v)) return v
+  return getVariantLabel(v)
+}
 
 type Section = (typeof HIP_SECTIONS)[number]
 
@@ -299,7 +307,7 @@ function PolyGrid({
           const validSizes = sizesByVariant?.[variant]
           return (
           <tr key={variant} className="border-t border-gray-100">
-            <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variant}</td>
+            <td className="py-2.5 pr-4 text-sm font-medium text-gray-700">{variantLabel(variant)}</td>
             {section.sizes.map((size) => {
               if (validSizes && !validSizes.includes(size as string)) {
                 return <td key={size} className="py-2.5 px-1 text-center"><span className="text-gray-200">—</span></td>

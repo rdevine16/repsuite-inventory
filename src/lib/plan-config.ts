@@ -123,8 +123,17 @@ const ALL_OPTIONS: VariantOption[] = [
   ...HIP_PLAN_OPTIONS.liner, ...HIP_PLAN_OPTIONS.head,
 ]
 
+// Additional labels for variants not in plan options but used in inventory grid
+const EXTRA_LABELS: Record<string, string> = {
+  delta_universal_40mm: 'Delta Universal 40mm Head',
+  v40_adapter_sleeve: 'V40 Adapter Sleeve',
+  hex_6_5mm: 'Hex 6.5mm',
+  torx_6_5mm: 'Torx 6.5mm',
+  mdm_cocr: 'MDM CoCr',
+}
+
 export function getVariantLabel(variantId: string): string {
-  return ALL_OPTIONS.find((o) => o.id === variantId)?.label ?? variantId
+  return ALL_OPTIONS.find((o) => o.id === variantId)?.label ?? EXTRA_LABELS[variantId] ?? variantId
 }
 
 export function getTubName(component: string, variantId: string, side?: string): string {
