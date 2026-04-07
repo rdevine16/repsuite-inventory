@@ -5,7 +5,7 @@ import FacilityHeader from './facility-header'
 import OverviewTab, { type OverviewData } from './overview-tab'
 import ActivityTab, { type ActivityEvent } from './activity-tab'
 import ExpirationsTab, { type InventoryItemForExpiration } from './expirations-tab'
-import ParLevelsTab, { type ParLevelEntry, type ReplenishmentRequest } from './par-levels-tab'
+import ParLevelsTab, { type ParLevelEntry, type ReplenishmentRequest, type InventoryItemForPar } from './par-levels-tab'
 import AnalyticsTab, { type AnalyticsData } from './analytics-tab'
 import { type Discrepancy } from './discrepancies'
 import AuditTab, { type AuditSession } from './audit-tab'
@@ -30,6 +30,7 @@ export default function DashboardShell({
   parLevels,
   onHandMap,
   replenishments,
+  inventoryItemsForPar,
   analyticsData,
   discrepancies,
   auditSessions,
@@ -49,6 +50,7 @@ export default function DashboardShell({
   parLevels: ParLevelEntry[]
   onHandMap: Record<string, number>
   replenishments: ReplenishmentRequest[]
+  inventoryItemsForPar: InventoryItemForPar[]
   analyticsData: AnalyticsData
   discrepancies: Discrepancy[]
   auditSessions: AuditSession[]
@@ -76,7 +78,7 @@ export default function DashboardShell({
           overview: <OverviewTab data={overviewData} discrepancies={discrepancies} facilitySummaries={facilitySummaries} />,
           activity: <ActivityTab events={activityEvents} />,
           expirations: <ExpirationsTab items={expirationItems} upcomingRefNumbers={upcomingRefNumbers} />,
-          'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} />,
+          'par-levels': <ParLevelsTab parLevels={parLevels} onHandMap={onHandMap} replenishments={replenishments} inventoryItems={inventoryItemsForPar} facilityName={facilityName} />,
           analytics: <AnalyticsTab data={analyticsData} />,
           audit: <AuditTab sessions={auditSessions} activityEvents={activityEvents} facilityName={facilityName} />,
         }}

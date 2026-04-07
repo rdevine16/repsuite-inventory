@@ -110,6 +110,7 @@ export default async function InventoryPage({
             parLevels={[]}
             onHandMap={{}}
             replenishments={[]}
+            inventoryItemsForPar={[]}
             analyticsData={{ usedItems: [], totalOnHand, upcomingCaseCount: 0 }}
             discrepancies={[]}
             auditSessions={[]}
@@ -211,8 +212,8 @@ export default async function InventoryPage({
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
     const coverage = await calculateDailyCoverage(supabase, selectedFacilityId, tomorrowStr)
-    coverageShort = coverage.coverage.filter((c) => c.status === 'short').length
-    coverageCovered = coverage.coverage.filter((c) => c.status === 'covered').length
+    coverageShort = coverage.coverage.filter((c) => c.status === 'below_target').length
+    coverageCovered = coverage.coverage.filter((c) => c.status === 'covered' || c.status === 'on_target').length
   } catch {
     // Coverage engine may fail if no cases — that's fine
   }
@@ -238,10 +239,17 @@ export default async function InventoryPage({
     .eq('facility_id', selectedFacilityId)
 
   // Build on-hand counts using inventory mapper
-  const { buildOnHandCounts } = await import('@/lib/inventory-mapper')
+  const { buildOnHandCounts, refToGridKey } = await import('@/lib/inventory-mapper')
   const onHandMap = buildOnHandCounts(
     (items ?? []).map((i) => ({ gtin: i.gtin, reference_number: i.reference_number }))
   )
+
+  // Build inventory items with grid keys for no-par detection
+  const inventoryItemsForPar = (items ?? []).map((i) => ({
+    reference_number: i.reference_number,
+    description: i.description,
+    gridKey: i.reference_number ? refToGridKey(i.reference_number) : null,
+  }))
 
   // Pending replenishment requests
   const { data: replenishments } = await supabase
@@ -379,6 +387,7 @@ export default async function InventoryPage({
           parLevels={parLevels ?? []}
           onHandMap={onHandMap}
           replenishments={replenishments ?? []}
+          inventoryItemsForPar={inventoryItemsForPar}
           analyticsData={{
             usedItems: usedItemsForAnalytics ?? [],
             totalOnHand,

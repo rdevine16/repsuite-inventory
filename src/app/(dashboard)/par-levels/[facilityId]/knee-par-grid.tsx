@@ -367,22 +367,27 @@ function ParCell({
     )
   }
 
-  const hasPar = value > 0
   const hasStock = onHand > 0
+  const isOverPar = hasStock && onHand > value
 
   // Determine cell style based on on-hand vs par
   let cellStyle = 'text-gray-300 hover:bg-gray-100 hover:text-gray-500' // no par, no stock
-  if (hasPar && onHand >= value) {
-    cellStyle = 'bg-emerald-50 text-emerald-700' // at or above par
-  } else if (hasPar && onHand > 0) {
+  if (isOverPar) {
+    cellStyle = 'bg-blue-50 text-blue-700' // over par (including par=0 with stock)
+  } else if (value > 0 && onHand >= value) {
+    cellStyle = 'bg-emerald-50 text-emerald-700' // exactly at par
+  } else if (value > 0 && onHand > 0) {
     cellStyle = 'bg-amber-50 text-amber-700' // below par but has some
-  } else if (hasPar && onHand === 0) {
+  } else if (value > 0 && onHand === 0) {
     cellStyle = 'bg-red-50 text-red-600' // par set but zero on hand
-  } else if (!hasPar && hasStock) {
-    cellStyle = 'bg-gray-50 text-gray-600' // stock but no par
+  } else if (hasStock) {
+    cellStyle = 'bg-blue-50 text-blue-700' // stock but no par set
   }
 
   if (isSaving) cellStyle = 'bg-blue-50 text-blue-400'
+
+  // Show the par denominator when par > 0 OR when there's stock to compare
+  const showPar = value > 0 || hasStock
 
   return (
     <button
@@ -396,7 +401,7 @@ function ParCell({
     >
       <div className="leading-tight">
         <span className="text-sm font-semibold">{onHand}</span>
-        {hasPar && <span className="text-[10px] opacity-60"> / {value}</span>}
+        {showPar && <span className="text-[10px] opacity-60"> / {value}</span>}
       </div>
     </button>
   )
