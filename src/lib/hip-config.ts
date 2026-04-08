@@ -53,7 +53,7 @@ export const HIP_SECTIONS = [
       '22mm': ['A', 'B', 'I'],
       '28mm': ['D', 'F'],
       '32mm': ['B', 'C', 'J'],
-      '36mm': ['E', 'F', 'G', 'H'],
+      '36mm': ['D', 'E', 'F', 'G', 'H'],
       '40mm': ['E', 'F', 'G', 'H'],
       '44mm': ['H'],
     } as Record<string, string[]>,

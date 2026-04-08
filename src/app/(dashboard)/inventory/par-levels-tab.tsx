@@ -305,6 +305,43 @@ export default function ParLevelsTab({
       if (current > pl.par_quantity) group.overPar++
     }
 
+    // Also add on-hand items that have NO par level into the matrix (shown as X/0)
+    const existingParKeys = new Set(parLevels.map((pl) => `${pl.category}|${pl.variant}|${pl.size}`))
+    for (const [key, count] of Object.entries(onHandMap)) {
+      if (existingParKeys.has(key)) continue // already in matrix from par levels
+      const [cat, variant, size] = key.split('|')
+      if (!cat || !variant || !size) continue
+
+      if (!groupMap.has(cat)) {
+        groupMap.set(cat, {
+          category: cat,
+          label: COMPONENT_LABELS[cat] ?? cat,
+          variants: [],
+          variantLabels: {},
+          sizes: [],
+          cells: {},
+          atPar: 0,
+          overPar: 0,
+          total: 0,
+          totalGap: 0,
+        })
+      }
+
+      const group = groupMap.get(cat)!
+      const variantLabel = VARIANT_LABELS[cat]?.[variant] ?? variant.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+      if (!group.variantLabels[variant]) {
+        group.variants.push(variant)
+        group.variantLabels[variant] = variantLabel
+      }
+      if (!group.sizes.includes(size)) {
+        group.sizes.push(size)
+      }
+
+      group.cells[`${variant}|${size}`] = { current: count, target: 0, gap: 0 }
+      group.overPar++
+    }
+
     const groups = Array.from(groupMap.values()).sort((a, b) => a.label.localeCompare(b.label))
 
     // Sort sizes naturally within each group
