@@ -47,6 +47,8 @@ export default function ImplantPlansManager({
   const [addComponent, setAddComponent] = useState('')
   const [addVariant, setAddVariant] = useState('')
   const [addSide, setAddSide] = useState('')
+  const [addSizeMin, setAddSizeMin] = useState('')
+  const [addSizeMax, setAddSizeMax] = useState('')
 
   // New sub-plan
   const [addingSubPlanTo, setAddingSubPlanTo] = useState<string | null>(null) // template id
@@ -149,11 +151,15 @@ export default function ImplantPlansManager({
       component: addComponent,
       variant: addVariant,
       side: addComponent === 'femur' || (compConfig.find((c) => c.key === addComponent)?.hasSide) ? (addSide || null) : null,
+      size_min: addSizeMin || null,
+      size_max: addSizeMax || null,
     })
     setAddingItemTo(null)
     setAddComponent('')
     setAddVariant('')
     setAddSide('')
+    setAddSizeMin('')
+    setAddSizeMax('')
     setSaving(false)
     router.refresh()
   }
@@ -347,6 +353,11 @@ export default function ImplantPlansManager({
                               </span>
                             )}
                             {getVariantLabel(item.variant)} {COMPONENT_LABELS[item.component] ?? item.component}
+                            {(item.size_min || item.size_max) && (
+                              <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-normal">
+                                {item.size_min && item.size_max ? `${item.size_min}–${item.size_max}` : item.size_max ? `≤${item.size_max}` : `≥${item.size_min}`}
+                              </span>
+                            )}
                             {canEdit && (
                               <button
                                 onClick={() => deleteItem(item.id)}
@@ -402,6 +413,24 @@ export default function ImplantPlansManager({
                               <option value="left">Left</option>
                               <option value="right">Right</option>
                             </select>
+                          )}
+                          {addVariant && (
+                            <>
+                              <input
+                                type="text"
+                                value={addSizeMin}
+                                onChange={(e) => setAddSizeMin(e.target.value)}
+                                placeholder="Min size"
+                                className="w-16 px-2 py-1 border border-gray-300 rounded text-xs"
+                              />
+                              <input
+                                type="text"
+                                value={addSizeMax}
+                                onChange={(e) => setAddSizeMax(e.target.value)}
+                                placeholder="Max size"
+                                className="w-16 px-2 py-1 border border-gray-300 rounded text-xs"
+                              />
+                            </>
                           )}
                           <button
                             onClick={() => addItem(sp.id)}

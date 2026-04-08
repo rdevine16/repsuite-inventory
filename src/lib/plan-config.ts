@@ -29,6 +29,8 @@ export interface SubPlanItem {
   component: string
   variant: string
   side: string | null
+  size_min: string | null
+  size_max: string | null
 }
 
 export type Frequency = 'every_case' | 'low' | 'medium' | 'high'
@@ -91,6 +93,7 @@ export const HIP_PLAN_OPTIONS = {
   ],
   cup: [
     { id: 'trident_ii_tritanium', label: 'Trident II Tritanium' },
+    { id: 'trident_ii_multihole', label: 'Trident II Multihole' },
     { id: 'trident_psl_ha', label: 'Trident PSL HA' },
   ],
   liner: [
