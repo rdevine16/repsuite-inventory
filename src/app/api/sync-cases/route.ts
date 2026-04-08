@@ -79,7 +79,8 @@ async function syncCases() {
     accessToken,
     tokenRow.sales_team_ids,
     formatDateForAPI(today),
-    formatDateForAPI(endDate)
+    formatDateForAPI(endDate),
+    'New,Requested,Assigned,Shipped/Ready for Surgery,Completed'
   )
 
   // Fetch completed cases from today onward
@@ -90,6 +91,10 @@ async function syncCases() {
     formatDateForAPI(endDate),
     'Completed'
   )
+
+  console.log('[sync] upcoming:', upcomingCases.length, 'completed:', completedCases.length)
+  const todayCompleted = completedCases.filter((c) => c.surgeryDate?.startsWith('2026-04-02'))
+  console.log('[sync] completed cases for today:', todayCompleted.length, todayCompleted.map((c) => ({ id: c.caseId, status: c.status, surgeon: c.surgeonName?.slice(0, 25) })))
 
   // Merge cases, preferring completed status when a case appears in both lists
   const caseMap = new Map<string, typeof upcomingCases[number]>()

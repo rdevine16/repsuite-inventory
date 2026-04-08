@@ -73,6 +73,7 @@ export const COMPONENTS: Record<string, { id: string; label: string; variants: {
       label: 'Cup',
       variants: [
         { id: 'trident_ii_tritanium', label: 'Trident II Tritanium' },
+        { id: 'trident_ii_multihole', label: 'Trident II Multihole' },
         { id: 'trident_psl_ha', label: 'Trident PSL HA' },
       ],
     },

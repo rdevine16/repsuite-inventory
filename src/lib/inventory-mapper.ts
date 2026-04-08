@@ -19,6 +19,8 @@ const HIP_RULES = {
   cups: [
     // Trident II Tritanium: 702-04-{size}{letter}
     { pattern: /^702-04-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'trident_ii_tritanium' },
+    // Trident II Tritanium Multihole: 709-04-{size}{letter}
+    { pattern: /^709-04-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'trident_ii_multihole' },
     // Trident PSL HA: 542-11-{size}{letter}
     { pattern: /^542-11-(\d{2}[A-Z])$/, category: 'hip_cup', variant: 'trident_psl_ha' },
   ],
@@ -52,6 +54,10 @@ const HIP_RULES = {
     { pattern: /^6519-T-100$/, category: 'hip_head_universal', variant: 'v40_adapter_sleeve', size: '0' },
     { pattern: /^6519-T-204$/, category: 'hip_head_universal', variant: 'v40_adapter_sleeve', size: '+4' },
   ],
+  bipolar: [
+    // UHR Bipolar 26mm: UH1-{outer}-26
+    { pattern: /^UH1-(\d{2})-26$/, category: 'hip_bipolar', variant: '26mm' },
+  ],
   screws: [
     // Hex: 7030-65{length}
     { pattern: /^7030-65(\d{2})$/, category: 'hip_screw', variant: 'hex_6_5mm' },
@@ -82,6 +88,7 @@ const DELTA_OFFSET: Record<string, Record<string, string>> = {
 // V40 CoCr head offset decode — per diameter
 const V40_OFFSET: Record<string, Record<string, string>> = {
   '22': { '1': '0', '2': '+3', '3': '+8' },
+  '26': { '0': '-3', '1': '0', '2': '+4', '3': '+8', '4': '+12' },
   '28': { '3': '+8' },
   '32': { '3': '+8', '4': '+12' },
   '36': { '3': '+10' },
@@ -134,10 +141,13 @@ export function refToGridKey(ref: string): string | null {
     }
   }
 
-  // Cups
+  // Cups — strip trailing letter, keep diameter only (e.g., "52E" → "52")
   for (const rule of HIP_RULES.cups) {
     const match = ref.match(rule.pattern)
-    if (match) return `${rule.category}|${rule.variant}|${match[1]}`
+    if (match) {
+      const diameter = match[1].replace(/[A-Z]$/, '')
+      return `${rule.category}|${rule.variant}|${diameter}`
+    }
   }
 
   // Liners (X3 and MDM CoCr): variant = "{ID}mm", size = letter
@@ -179,6 +189,15 @@ export function refToGridKey(ref: string): string | null {
   for (const rule of HIP_RULES.universal) {
     const match = ref.match(rule.pattern)
     if (match) return `${rule.category}|${rule.variant}|${rule.size}`
+  }
+
+  // Bipolar
+  for (const rule of HIP_RULES.bipolar) {
+    const match = ref.match(rule.pattern)
+    if (match) {
+      const outer = parseInt(match[1]).toString()
+      return `${rule.category}|${rule.variant}|${outer}`
+    }
   }
 
   // Screws

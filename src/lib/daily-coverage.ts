@@ -15,6 +15,7 @@ export interface CaseSummary {
   procedure_type: 'knee' | 'hip'
   plan_id: string | null
   plan_name: string | null
+  status: string | null
 }
 
 export interface DemandSource {
@@ -32,10 +33,13 @@ export interface VariantCoverage {
   side: string | null
   display_name: string
   tub_name: string
-  sets_needed: number
-  sets_on_hand: number
-  gap: number
-  status: 'covered' | 'short'
+  sets_needed: number       // raw demand (1:1 with cases)
+  target_sets: number       // demand adjusted by coverage ratio
+  sets_on_hand: number      // permanent hospital inventory
+  sets_requested: number    // total requested from warehouse (shipped + in transit)
+  sets_shipped: number      // portion of requested that has shipped
+  gap: number               // target_sets - (on_hand + requested). 0 = on target
+  status: 'on_target' | 'below_target' | 'covered'
   demand_breakdown: DemandSource[]
 }
 
@@ -43,9 +47,12 @@ export interface CoverageResult {
   facility_id: string
   facility_name: string
   date: string
+  coverage_ratio: number
   total_cases: number
+  knee_cases: number
+  hip_cases: number
   cases: CaseSummary[]
-  cases_by_surgeon: { surgeon: string; display_name: string; count: number; left: number; right: number }[]
+  cases_by_surgeon: { surgeon: string; display_name: string; count: number; left: number; right: number; procedure_type: string }[]
   coverage: VariantCoverage[]
   recommendations: {
     tub_name: string
@@ -53,7 +60,6 @@ export interface CoverageResult {
     side: string | null
     component: string
     tubs_needed: number
-    priority: 'required' | 'recommended'
   }[]
   no_plans: string[]
   no_plan_surgeons: string[]
@@ -98,18 +104,28 @@ export async function calculateDailyCoverage(
   date: string,
 ): Promise<CoverageResult> {
   const { data: facility } = await supabase
-    .from('facilities').select('name').eq('id', facilityId).single()
+    .from('facilities').select('name, coverage_ratio').eq('id', facilityId).single()
+
+  const coverageRatio: number = facility?.coverage_ratio ?? 0.66
 
   const dayStart = `${date}T00:00:00`
   const dayEnd = `${date}T23:59:59`
 
-  const { data: rawCases } = await supabase
+  // Fetch ALL cases for the day (including completed) — we need completed cases
+  // for supply counting since their kits stay at the hospital all day.
+  // Cancelled cases are excluded entirely.
+  const { data: allDayCases } = await supabase
     .from('cases')
-    .select('id, case_id, surgeon_name, procedure_name, surgery_date, plan_id')
+    .select('id, case_id, surgeon_name, procedure_name, surgery_date, plan_id, status, sf_id')
     .eq('facility_id', facilityId)
     .gte('surgery_date', dayStart)
     .lte('surgery_date', dayEnd)
-    .not('status', 'in', '("Completed","Cancelled")')
+    .neq('status', 'Cancelled')
+
+  // Active cases drive demand (not completed, not cancelled)
+  const rawCases = (allDayCases ?? []).filter((c) => c.status !== 'Completed')
+  // All non-cancelled cases (including completed) drive supply
+  const supplyCases = allDayCases ?? []
 
   const surgeonNames = [...new Set((rawCases ?? []).map((c) => c.surgeon_name).filter(Boolean))]
 
@@ -157,32 +173,36 @@ export async function calculateDailyCoverage(
   mappings?.forEach((m) => { nameMap[m.repsuite_name] = m.display_name })
   const displayName = (raw: string) => nameMap[raw] ?? raw.replace(/^\d+ - /, '')
 
-  // Build cases
-  const cases: CaseSummary[] = (rawCases ?? []).map((c) => {
+  // Build case summary from a raw case record
+  function toCaseSummary(c: { id: string; case_id: string | null; surgeon_name: string | null; procedure_name: string | null; surgery_date: string; plan_id: string | null; status: string | null; sf_id: string | null }): CaseSummary {
     const procType = detectProcedureType(c.procedure_name ?? '')
     let planId = c.plan_id
     let planName: string | null = null
-
     if (!planId && c.surgeon_name) {
       const defId = defaultPlans.get(`${c.surgeon_name}|${procType}`)
       if (defId) { planId = defId; planName = `${templateMap.get(defId)?.plan_name ?? ''} (default)` }
     } else if (planId) {
       planName = templateMap.get(planId)?.plan_name ?? null
     }
-
     return {
       id: c.id, case_id: c.case_id ?? '', surgeon_name: c.surgeon_name ?? '',
       procedure_name: c.procedure_name ?? '', surgery_date: c.surgery_date,
       side: detectSide(c.procedure_name ?? ''), procedure_type: procType,
-      plan_id: planId, plan_name: planName,
+      plan_id: planId, plan_name: planName, status: c.status,
     }
-  })
+  }
+
+  // Active cases (demand) — excludes completed
+  const cases: CaseSummary[] = rawCases.map(toCaseSummary)
+
+  // All cases including completed (supply) — kits stay at the hospital all day
+  const allCasesForSupply = supplyCases.map(toCaseSummary)
 
   // Surgeon summary
-  const surgeonCounts: Record<string, { count: number; left: number; right: number }> = {}
+  const surgeonCounts: Record<string, { count: number; left: number; right: number; procedure_type: string }> = {}
   for (const c of cases) {
     if (!c.surgeon_name) continue
-    if (!surgeonCounts[c.surgeon_name]) surgeonCounts[c.surgeon_name] = { count: 0, left: 0, right: 0 }
+    if (!surgeonCounts[c.surgeon_name]) surgeonCounts[c.surgeon_name] = { count: 0, left: 0, right: 0, procedure_type: c.procedure_type }
     surgeonCounts[c.surgeon_name].count++
     if (c.side === 'left') surgeonCounts[c.surgeon_name].left++
     else if (c.side === 'right') surgeonCounts[c.surgeon_name].right++
@@ -190,8 +210,11 @@ export async function calculateDailyCoverage(
   }
 
   const casesBySurgeon = Object.entries(surgeonCounts).map(([name, c]) => ({
-    surgeon: name, display_name: displayName(name), count: c.count, left: c.left, right: c.right,
+    surgeon: name, display_name: displayName(name), count: c.count, left: c.left, right: c.right, procedure_type: c.procedure_type,
   }))
+
+  const kneeCases = cases.filter((c) => c.procedure_type === 'knee').length
+  const hipCases = cases.filter((c) => c.procedure_type === 'hip').length
 
   const noPlanCases = cases.filter((c) => !c.plan_id)
   const surgeonsWithAnyPlan = new Set((allTemplates ?? []).map((t: { surgeon_name: string }) => t.surgeon_name))
@@ -265,100 +288,169 @@ export async function calculateDailyCoverage(
     return sizeMap[`${component}|${variant}`] ?? FALLBACK_SIZES[component] ?? []
   }
 
-  // ------- Count sets on hand -------
+  // ------- Count supply (on hand + on order) -------
+  // 1. Permanent hospital inventory
   const { data: inventoryItems } = await supabase
     .from('facility_inventory').select('gtin, reference_number').eq('facility_id', facilityId)
   const onHand = buildOnHandCounts(inventoryItems ?? [])
 
-  const { data: loanerCases } = await supabase
-    .from('cases').select('sf_id').eq('facility_id', facilityId)
-    .in('status', ['Shipped/Ready for Surgery', 'Assigned'])
-  const sfIds = (loanerCases ?? []).map((c) => c.sf_id).filter(Boolean)
-  if (sfIds.length > 0) {
-    const { data: caseParts } = await supabase
-      .from('case_parts').select('catalog_number, quantity, is_loaner')
-      .in('case_sf_id', sfIds).eq('is_loaner', true)
-    if (caseParts) {
-      const kitCounts = buildOnHandCounts(
-        caseParts.filter((p) => p.catalog_number).map((p) => ({ gtin: null, reference_number: p.catalog_number }))
-      )
-      for (const [key, count] of Object.entries(kitCounts)) onHand[key] = (onHand[key] ?? 0) + count
+  // 2. Plan-based supply: use surgeon plans + case status to determine what's
+  //    been shipped (on hand) vs requested (on order) for this day's cases.
+  //    RepSuite doesn't populate case_parts until kits ship, so for "Requested"
+  //    cases we derive supply from the assigned plan instead.
+  const supplyOnHand: Record<string, number> = {}
+  const supplyOnOrder: Record<string, number> = {}
+
+  function addSupply(
+    target: Record<string, number>,
+    component: string, variant: string, side: string | null, sets: number,
+  ) {
+    if (!variant || sets <= 0) return
+    const key = `${component}|${variant}|${side ?? 'any'}`
+    target[key] = (target[key] ?? 0) + sets
+  }
+
+  // Group ALL day's cases (including completed) by plan for supply counting
+  const supplyCasesByPlan: Record<string, (CaseSummary)[]> = {}
+  for (const c of allCasesForSupply) {
+    if (!c.plan_id) continue
+    if (!supplyCasesByPlan[c.plan_id]) supplyCasesByPlan[c.plan_id] = []
+    supplyCasesByPlan[c.plan_id].push(c)
+  }
+
+  for (const [planId, planCases] of Object.entries(supplyCasesByPlan)) {
+    const tmpl = templateMap.get(planId)
+    if (!tmpl) continue
+
+    // Split cases by supply status — completed + shipped kits are physically on hand
+    const shippedCases = planCases.filter((c) =>
+      c.status === 'Shipped/Ready for Surgery' || c.status === 'Completed'
+    )
+    const requestedCases = planCases.filter((c) =>
+      c.status === 'Requested' || c.status === 'Assigned'
+    )
+
+    for (const { bucket, bucketCases } of [
+      { bucket: supplyOnHand, bucketCases: shippedCases },
+      { bucket: supplyOnOrder, bucketCases: requestedCases },
+    ]) {
+      if (bucketCases.length === 0) continue
+
+      const leftCount = bucketCases.filter((c) => c.side === 'left' || c.side === 'unknown').length
+      const rightCount = bucketCases.filter((c) => c.side === 'right' || c.side === 'unknown').length
+      const totalCount = bucketCases.length
+
+      for (const sp of tmpl.sub_plans) {
+        for (const item of sp.items) {
+          if (item.component === 'femur' || (item.side === 'left' || item.side === 'right')) {
+            const itemSide = item.side
+            if (itemSide === 'left' || (!itemSide && leftCount > 0)) {
+              addSupply(bucket, item.component, item.variant, itemSide ?? 'left', frequencySets(sp.frequency, leftCount))
+            }
+            if (itemSide === 'right' || (!itemSide && rightCount > 0)) {
+              addSupply(bucket, item.component, item.variant, itemSide ?? 'right', frequencySets(sp.frequency, rightCount))
+            }
+          } else {
+            addSupply(bucket, item.component, item.variant, item.side, frequencySets(sp.frequency, totalCount))
+          }
+        }
+      }
     }
   }
 
+  // Plan-derived supply uses demand-style keys (component|variant|side)
+  // which are applied directly in the coverage loop below, not through
+  // the grid-based countSetsFor function.
+  const onOrder: Record<string, number> = {}
+
   // ------- Build coverage -------
+
+  const gridCategoryMap: Record<string, string> = {
+    femur: 'knee_femur', tibia: 'knee_tibia', patella: 'knee_patella',
+    stem: 'hip_stem', cup: 'hip_cup',
+  }
+
+  // Count complete sets from a given inventory map
+  function countSetsFor(inv: Record<string, number>, component: string, variant: string, side: string | null): number {
+    const sizes = getSizes(component, variant)
+    if (component === 'femur') {
+      const gv = side ? `${side}_${variant}` : variant
+      return countCompleteSets(inv, 'knee_femur', gv, sizes)
+    } else if (component === 'poly') {
+      const cat = `knee_poly_${variant}`
+      const polySizes = getSizes('poly', variant)
+      const ths = variant === 'ts' ? ['9', '11', '13', '16', '19', '22', '25', '28', '31'] : ['9', '10', '11', '12', '13', '14', '16', '19']
+      return Math.min(...polySizes.flatMap((ks) =>
+        ths.map((th) => inv[`${cat}|${ks}|${th}`] ?? 0)
+      ))
+    } else if (component === 'liner' || component === 'head') {
+      return 0
+    } else {
+      const gridCat = gridCategoryMap[component] ?? component
+      return countCompleteSets(inv, gridCat, variant, sizes)
+    }
+  }
+
   const coverage: VariantCoverage[] = []
 
   for (const [key, d] of Object.entries(demand)) {
     const [component, variant, sideKey] = key.split('|')
     const side = sideKey === 'any' ? null : sideKey
 
-    let setsOnHand = 0
-    const sizes = getSizes(component, variant)
+    // Inventory-based count (permanent hospital inventory)
+    const inventoryOnHand = countSetsFor(onHand, component, variant, side)
+    // Plan-derived supply by case status
+    const planShipped = supplyOnHand[key] ?? 0
+    const planRequested = supplyOnOrder[key] ?? 0
+    const totalRequested = planShipped + planRequested
 
-    // Map component to inventory grid category
-    const gridCategoryMap: Record<string, string> = {
-      femur: 'knee_femur', tibia: 'knee_tibia', patella: 'knee_patella',
-      stem: 'hip_stem', cup: 'hip_cup',
-    }
+    const setsOnHand = inventoryOnHand
+    // Apply coverage ratio: target is the number of sets you INTEND to have
+    const targetSets = Math.ceil(d.sets * coverageRatio)
+    const totalAvailable = setsOnHand + totalRequested
+    const gap = Math.max(0, targetSets - totalAvailable)
 
-    if (component === 'femur') {
-      const gv = side ? `${side}_${variant}` : variant
-      setsOnHand = countCompleteSets(onHand, 'knee_femur', gv, sizes)
-    } else if (component === 'poly') {
-      // Poly: 2D grid — category=knee_poly_{variant}, variants=knee sizes, sizes=thicknesses
-      const cat = `knee_poly_${variant}`
-      const polySizes = getSizes('poly', variant)
-      const ths = variant === 'ts' ? ['9', '11', '13', '16', '19', '22', '25', '28', '31'] : ['9', '10', '11', '12', '13', '14', '16', '19']
-      setsOnHand = Math.min(...polySizes.map((ks) => {
-        let t = 0; for (const th of ths) t += onHand[`${cat}|${ks}|${th}`] ?? 0; return t
-      }))
-    } else if (component === 'liner') {
-      // Liners have complex grid categories — skip detailed counting for now
-      // Will be handled once liner sizes are defined
-      setsOnHand = 0
-    } else if (component === 'head') {
-      // Heads are consumable — skip set counting
-      setsOnHand = 0
-    } else {
-      // Standard: femur, tibia, patella, stem, cup
-      const gridCat = gridCategoryMap[component] ?? component
-      setsOnHand = countCompleteSets(onHand, gridCat, variant, sizes)
-    }
-
-    const gap = Math.max(0, d.sets - setsOnHand)
     const sl = side ? (side === 'left' ? 'Left' : 'Right') : null
     const dn = `${sl ? sl + ' ' : ''}${getVariantLabel(variant)} ${component.charAt(0).toUpperCase() + component.slice(1)}`
+
+    // Neutral status: on_target (at or above ratio), below_target (below ratio),
+    // covered (everything shipped or in permanent inventory)
+    let status: 'on_target' | 'below_target' | 'covered'
+    if (totalAvailable >= d.sets) {
+      status = 'covered'        // full 1:1 coverage
+    } else if (totalAvailable >= targetSets) {
+      status = 'on_target'      // at your intended ratio
+    } else {
+      status = 'below_target'   // below your ratio — may want to order more
+    }
 
     coverage.push({
       component, variant, side, display_name: dn,
       tub_name: getTubName(component, variant, side ?? undefined),
-      sets_needed: d.sets, sets_on_hand: setsOnHand, gap,
-      status: gap <= 0 ? 'covered' : 'short',
+      sets_needed: d.sets, target_sets: targetSets, sets_on_hand: setsOnHand,
+      sets_requested: totalRequested, sets_shipped: planShipped, gap,
+      status,
       demand_breakdown: d.sources,
     })
   }
 
   coverage.sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'short' ? -1 : 1
+    const order = { below_target: 0, on_target: 1, covered: 2 }
+    if (a.status !== b.status) return order[a.status] - order[b.status]
     return a.display_name.localeCompare(b.display_name)
   })
 
-  const recommendations = coverage.filter((c) => c.gap > 0).map((c) => {
-    const hasRequired = c.demand_breakdown.some((d) => d.frequency === 'every_case')
-    return {
-      tub_name: c.tub_name, variant: c.variant, side: c.side, component: c.component,
-      tubs_needed: c.gap,
-      priority: hasRequired ? 'required' as const : 'recommended' as const,
-    }
-  }).sort((a, b) => {
-    if (a.priority !== b.priority) return a.priority === 'required' ? -1 : 1
-    return a.tub_name.localeCompare(b.tub_name)
-  })
+  // Only recommend ordering for items below target
+  const recommendations = coverage.filter((c) => c.gap > 0).map((c) => ({
+    tub_name: c.tub_name, variant: c.variant, side: c.side, component: c.component,
+    tubs_needed: c.gap,
+  })).sort((a, b) => a.tub_name.localeCompare(b.tub_name))
 
   return {
     facility_id: facilityId, facility_name: facility?.name ?? facilityId,
-    date, total_cases: cases.length, cases, cases_by_surgeon: casesBySurgeon,
+    date, coverage_ratio: coverageRatio,
+    total_cases: cases.length, knee_cases: kneeCases, hip_cases: hipCases,
+    cases, cases_by_surgeon: casesBySurgeon,
     coverage, recommendations,
     no_plans: noPlanCases.map((c) => `${displayName(c.surgeon_name)} — ${c.procedure_name}`),
     no_plan_surgeons: noPlanSurgeons.map(displayName),

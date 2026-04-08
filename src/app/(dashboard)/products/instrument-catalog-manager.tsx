@@ -354,14 +354,14 @@ export default function InstrumentCatalogManager({
                 disabled={currentPage === 1}
                 className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
               >
-                ««
+                {'«'}
               </button>
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
                 className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
               >
-                ‹
+                {'‹'}
               </button>
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let page: number
@@ -393,14 +393,14 @@ export default function InstrumentCatalogManager({
                 disabled={currentPage === totalPages}
                 className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
               >
-                ›
+                {'›'}
               </button>
               <button
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage === totalPages}
                 className="px-2 py-1 text-xs rounded border border-gray-300 bg-white disabled:opacity-40 hover:bg-gray-100"
               >
-                »»
+                {'»'}
               </button>
             </div>
           </div>

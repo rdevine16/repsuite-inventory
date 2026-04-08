@@ -11,9 +11,10 @@ const COMPONENT_NAMES: Record<string, Record<string, string>> = {
   knee_poly: { cs: 'CS Poly Insert', ps: 'PS Poly Insert', ts: 'TS Poly Insert' },
   knee_patella: { asym_cemented: 'Asymmetric Patella (Cem)', sym_cemented: 'Symmetric Patella (Cem)', asym_pressfit: 'Asymmetric Patella (PF)', sym_pressfit: 'Symmetric Patella (PF)' },
   hip_stem: { accolade_ii_132: 'Accolade II 132°', accolade_ii_127: 'Accolade II 127°', accolade_c_132: 'Accolade C 132°', accolade_c_127: 'Accolade C 127°', insignia_standard: 'Insignia Standard', insignia_high: 'Insignia High' },
-  hip_cup: { trident_ii_tritanium: 'Trident II Tritanium Cup', trident_psl_ha: 'Trident PSL HA Cup' },
+  hip_cup: { trident_ii_tritanium: 'Trident II Tritanium Cup', trident_ii_multihole: 'Trident II Multihole Cup', trident_psl_ha: 'Trident PSL HA Cup' },
   hip_liner: { x3_0: 'X3 0° Liner', x3_10: 'X3 10° Liner', x3_ecc: 'X3 Eccentric Liner', mdm_cocr: 'MDM CoCr Liner', mdm_x3: 'MDM X3 Liner' },
   hip_head: { delta_ceramic: 'Delta Ceramic Head', v40_cocr: 'V40 CoCr Head' },
+  hip_bipolar: { '26mm': 'UHR Bipolar 26mm' },
 }
 
 function formatComponentName(component: string, variant: string): string {

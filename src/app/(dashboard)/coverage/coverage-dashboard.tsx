@@ -40,8 +40,8 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
     }
   }
 
-  const shortCount = result?.coverage.filter((c) => c.status === 'short').length ?? 0
-  const coveredCount = result?.coverage.filter((c) => c.status === 'covered').length ?? 0
+  const belowCount = result?.coverage.filter((c) => c.status === 'below_target').length ?? 0
+  const coveredCount = result?.coverage.filter((c) => c.status === 'covered' || c.status === 'on_target').length ?? 0
 
   return (
     <div className="space-y-6">
@@ -99,10 +99,10 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
                 </p>
               </div>
               <div className="flex gap-3">
-                {shortCount > 0 && (
+                {belowCount > 0 && (
                   <div className="text-center px-4 py-2 bg-red-50 rounded-lg border border-red-200">
-                    <div className="text-2xl font-bold text-red-600">{shortCount}</div>
-                    <div className="text-[10px] text-red-500 font-medium uppercase">Short</div>
+                    <div className="text-2xl font-bold text-red-600">{belowCount}</div>
+                    <div className="text-[10px] text-red-500 font-medium uppercase">Below Target</div>
                   </div>
                 )}
                 <div className="text-center px-4 py-2 bg-emerald-50 rounded-lg border border-emerald-200">
@@ -155,18 +155,9 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
               <div className="divide-y divide-gray-100">
                 {result.recommendations.map((rec, i) => (
                   <div key={i} className="px-5 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        rec.priority === 'required'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-purple-100 text-purple-700'
-                      }`}>
-                        {rec.priority === 'required' ? 'REQUIRED' : 'RECOMMENDED'}
-                      </span>
-                      <span className="text-sm text-gray-900">
-                        Send <span className="font-semibold">{rec.tubs_needed}</span> {rec.tub_name}
-                      </span>
-                    </div>
+                    <span className="text-sm text-gray-900">
+                      Order <span className="font-semibold">{rec.tubs_needed}</span> {rec.tub_name}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -184,6 +175,7 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="text-left px-5 py-2 text-xs font-medium text-gray-500 uppercase">Component</th>
                     <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">On Hand</th>
+                    <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Requested / Shipped</th>
                     <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Needed</th>
                     <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Gap</th>
                     <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -196,7 +188,7 @@ export default function CoverageDashboard({ facilities }: { facilities: Facility
                   ))}
                   {result.coverage.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                      <td colSpan={7} className="px-5 py-8 text-center text-gray-400">
                         No coverage data. Check that surgeons have implant plans configured.
                       </td>
                     </tr>
@@ -279,6 +271,20 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
           <span className="text-gray-400 text-xs ml-0.5">sets</span>
         </td>
         <td className="text-center px-3 py-2.5 tabular-nums">
+          {cov.sets_requested > 0 ? (
+            <div className="flex items-center justify-center gap-1">
+              <span className="font-medium text-gray-700">{cov.sets_requested}</span>
+              <span className="text-gray-400 text-[10px]">/</span>
+              <span className={`font-medium ${cov.sets_shipped >= cov.sets_requested ? 'text-emerald-600' : cov.sets_shipped > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                {cov.sets_shipped}
+              </span>
+              <span className="text-gray-400 text-[10px]">shipped</span>
+            </div>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+        <td className="text-center px-3 py-2.5 tabular-nums">
           <span className="font-medium">{cov.sets_needed}</span>
           <span className="text-gray-400 text-xs ml-0.5">sets</span>
         </td>
@@ -297,12 +303,19 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
               </svg>
               Covered
             </span>
+          ) : cov.status === 'on_target' ? (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              On Target
+            </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3l9 9-9 9-9-9 9-9z" />
               </svg>
-              Short
+              Below Target
             </span>
           )}
         </td>
@@ -318,7 +331,7 @@ function CoverageRow({ cov }: { cov: VariantCoverage }) {
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={6} className="px-5 py-3 bg-gray-50/50">
+          <td colSpan={7} className="px-5 py-3 bg-gray-50/50">
             <div className="text-xs space-y-1">
               <div className="font-medium text-gray-600 mb-2">Demand Breakdown:</div>
               {cov.demand_breakdown.map((d, i) => (
